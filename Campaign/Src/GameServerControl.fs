@@ -98,7 +98,7 @@ with
     member this.AltMissionFile = sprintf "%s_2" this.MissionBaseName
 
     /// Directory where DServer saves logs
-    member this.MissionLogs = IO.Path.Combine(this.GameDir, "data", "logs")
+    member this.MissionLogs = IO.Path.Combine(this.GameDir, "data")
 
     /// Limits on number of entities in ground battles
     member this.GroundBattleLimits : Campaign.MissionGen.MissionFileGeneration.GroundBattleNumbers =
