@@ -841,6 +841,8 @@ type Sync(settings : Settings, gameServer : IGameServerControl, ?logger) =
                             MissionFilePreparation.MaxTotalNumFires = settings.MaxTotalNumFires
                             MissionFilePreparation.MaxFiresRadius = settings.MaxFiresRadius
                             MissionFilePreparation.MaxNumFiresInRadius = settings.MaxNumFiresInRadius
+                            MissionFilePreparation.EnableAlliesSpawns = settings.EnableAlliesSpawns
+                            MissionFilePreparation.EnableAxisSpawns = settings.EnableAxisSpawns
                         }
                     let missionGenSettings : MissionGenSettings =
                         {

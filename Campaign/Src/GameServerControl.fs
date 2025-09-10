@@ -77,6 +77,8 @@ type Settings =
         MaxBlocks : int
         AdMessages : string[]
         AdPeriod : int
+        EnableAlliesSpawns : bool
+        EnableAxisSpawns : bool
     }
 with
     /// Root of the data dir, passed to resaver.exe
@@ -155,6 +157,8 @@ module IO =
             max_blocks : int option
             ad_messages : string[] option
             ad_period : int option
+            enable_allies_spawns : bool option
+            enable_axis_spawns : bool option
         }
     with
         member this.AsSettings =
@@ -196,6 +200,8 @@ module IO =
                 MaxBlocks = defaultArg this.max_blocks 7500
                 AdMessages = defaultArg this.ad_messages [||]
                 AdPeriod = defaultArg this.ad_period -1
+                EnableAlliesSpawns = defaultArg this.enable_allies_spawns true
+                EnableAxisSpawns = defaultArg this.enable_axis_spawns true
             }
 
     /// Create a default settings file and return its content.
@@ -242,6 +248,8 @@ module IO =
                 max_blocks = None
                 ad_messages = None
                 ad_period = None
+                enable_allies_spawns = None
+                enable_axis_spawns = None
             }
         let json = Json.serialize content
         IO.File.WriteAllText(path, json)
