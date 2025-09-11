@@ -27,6 +27,12 @@ The web site (HTML and javascript) is available from https://github.com/deneuxj/
 
 The former is part of the same package as the present file, and you've likely already downloaded it if you are reading this. The latter is a separate package to be downloaded.
 
+== IL-2 Great Battles Configuration
+In \IL-2 Sturmovik Battle of Stalingrad\data\startup.cfg:
+- Add a new entry under [KEY = system] named "text_log_folder" set to "logs\"
+- Set "mission_text_log" to 1
+
+
 == Installation
 
 Create a directory anywhere, preferably outside of C:\Program Files. Let's say you chose C:\CocoCampaign.
@@ -105,7 +111,7 @@ The following entries are optional, and can be used to adjust mission complexity
 
 Make sure you set and understand the remote console settings.
 
-Set shutdown loads to some reasonable value, e.g. 5. The server will shut down automatically after this number of missions have been run. The web controller will detect this and restart DServer.exe.
+Set shutdown loads to some reasonable value, e.g. 5. The server will shut down automatically after this number of missions have been run. The web controller will detect this and re     DServer.exe.
 This is needed because DServer tends to become unstable after a few missions have been run.
 
 Set the max time for round to unlimited. The web controller triggers the next mission when it's ready, which is why you can use unlimited time.
