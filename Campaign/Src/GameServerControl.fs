@@ -357,22 +357,19 @@ type RConGameServerControl(settings : Settings, ?logger) =
                         else
                             return Error "Failed RConClient task"
                 | None ->
-                    if attemptsLeft > 0 then
-                        return! attempt (attemptsLeft - 1)
-                    else
-                        return Error "No connection to DServer"
+                    let! s = connect()
+                    match s with
+                    | Ok() ->
+                        logger.Debug("Connected to RCon")
+                        return! attempt attemptsLeft
+                    | Error msg ->
+                        logger.Debug("Connection failed: " + msg)
+                        if attemptsLeft > 0 then
+                            return! attempt (attemptsLeft - 1)
+                        else
+                            return Error "No connection to DServer"
             }
-        async {
-            if client.IsNone then
-                let! s = connect()
-                logger.Debug(
-                    let status =
-                        match s with
-                        | Ok() -> "OK"
-                        | Error s -> "Error: " + s
-                    "Status of RCon connection: " + status)
-            return! attempt 1
-        }
+        attempt 3
 
     let rotateMission() =
         tryOnClient <| fun client -> async {
