@@ -111,7 +111,7 @@ The following entries are optional, and can be used to adjust mission complexity
 
 Make sure you set and understand the remote console settings.
 
-Set shutdown loads to some reasonable value, e.g. 5. The server will shut down automatically after this number of missions have been run. The web controller will detect this and re     DServer.exe.
+Set shutdown loads to some reasonable value, e.g. 5. The server will shut down automatically after this number of missions have been run. The web controller will detect this and restart DServer.exe.
 This is needed because DServer tends to become unstable after a few missions have been run.
 
 Set the max time for round to unlimited. The web controller triggers the next mission when it's ready, which is why you can use unlimited time.
@@ -164,3 +164,4 @@ To stop DServer.exe, stop WebController first. Otherwise, WebController will not
 To force re-generating a mission, delete file sync.json in the campaign files (stop WebController.exe first), start WebController, start synchronization.
 
 WebController.exe produces a log file in webcontroller.txt, where WebController.exe is located. This file can get big over time, so keep an eye on it and delete it now and then.
+
