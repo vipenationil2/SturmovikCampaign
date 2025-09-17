@@ -6374,4 +6374,84 @@ Plane
 }
 
 
+
+Plane
+{
+  Name = "c47a";
+  Index = 174;
+  LinkTrId = 0;
+  XPos = 28878.255;
+  YPos = 111.635;
+  ZPos = 20074.301;
+  XOri = 0.00;
+  YOri = 0.00;
+  ZOri = 11.90;
+  Script = "LuaScripts\WorldObjects\Planes\c47a.txt";
+  Model = "graphics\planes\c47a\c47a.mgm";
+  Country = 0;
+  Desc = "";
+  Skin = "";
+  AILevel = 2;
+  CoopStart = 0;
+  NumberInFormation = 0;
+  Vulnerable = 1;
+  Engageable = 1;
+  LimitAmmo = 1;
+  StartInAir = 2;
+  Callsign = 0;
+  Callnum = 0;
+  Time = 60;
+  DamageReport = 50;
+  DamageThreshold = 1;
+  PayloadId = 0;
+  WMMask = 1;
+  AiRTBDecision = 0;
+  DeleteAfterDeath = 1;
+  Spotter = -1;
+  Fuel = 1;
+  TCode = "";
+  TCodeColor = "";
+}
+
+
+
+Plane
+{
+  Name = "li2";
+  Index = 177;
+  LinkTrId = 0;
+  XPos = 28876.732;
+  YPos = 111.685;
+  ZPos = 20136.276;
+  XOri = 0.00;
+  YOri = 0.00;
+  ZOri = 12.20;
+  Script = "LuaScripts\WorldObjects\Planes\li2.txt";
+  Model = "graphics\planes\li2\li2.mgm";
+  Country = 0;
+  Desc = "";
+  Skin = "";
+  AILevel = 2;
+  CoopStart = 0;
+  NumberInFormation = 0;
+  Vulnerable = 1;
+  Engageable = 1;
+  LimitAmmo = 1;
+  StartInAir = 2;
+  Callsign = 0;
+  Callnum = 0;
+  Time = 60;
+  DamageReport = 50;
+  DamageThreshold = 1;
+  PayloadId = 0;
+  WMMask = 1;
+  AiRTBDecision = 0;
+  DeleteAfterDeath = 1;
+  Spotter = -1;
+  Fuel = 1;
+  TCode = "";
+  TCodeColor = "";
+}
+
+
 # end of file

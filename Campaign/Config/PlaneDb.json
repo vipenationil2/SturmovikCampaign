@@ -829,6 +829,66 @@
     },
     {
       "Plane": {
+        "Kind": "Transport",
+        "Name": "c47",
+        "LogName": "c 47",
+        "Roles": [
+          "CargoTransporter"
+        ],
+        "Coalition": "Allies",
+        "Script": "LuaScripts\\WorldObjects\\Planes\\c47a.txt",
+        "Model": "graphics\\planes\\c47a\\c47a.mgm",
+        "Static": "c47a",
+        "Cost": 1333.3333740234375,
+        "BombCapacity": 2500,
+        "CargoCapacity": 2300,
+        "Payloads": [
+          {
+            "Payload": {
+              "Role": "CargoTransporter",
+              "ModMask": 1,
+              "Id": 0
+            }
+          }
+        ],
+        "EmptyPayload": 3,
+        "WeaponModsCosts": [],
+        "LastPayload": 3,
+        "LastWeaponMod": 4
+      }
+    },
+    {
+      "Plane": {
+        "Kind": "Transport",
+        "Name": "li2",
+        "LogName": "li 2",
+        "Roles": [
+          "CargoTransporter"
+        ],
+        "Coalition": "Allies",
+        "Script": "LuaScripts\\WorldObjects\\Planes\\li2.txt",
+        "Model": "graphics\\planes\\li2\\li2.mgm",
+        "Static": "li2",
+        "Cost": 1333.3333740234375,
+        "BombCapacity": 2500,
+        "CargoCapacity": 2300,
+        "Payloads": [
+          {
+            "Payload": {
+              "Role": "CargoTransporter",
+              "ModMask": 1,
+              "Id": 0
+            }
+          }
+        ],
+        "EmptyPayload": 3,
+        "WeaponModsCosts": [],
+        "LastPayload": 3,
+        "LastWeaponMod": 4
+      }
+    },
+    {
+      "Plane": {
         "Kind": "Fighter",
         "Name": "i16",
         "LogName": "i-16",

@@ -507,6 +507,8 @@ type PreparationSettings = {
     MaxFiresRadius : int
     MaxNumFiresInRadius : int
     MaxTotalNumFires : int
+    EnableAxisSpawns : bool
+    EnableAlliesSpawns : bool
 }
 
 /// Create the descriptions of the groups to include in a mission file depending on a selected subset of missions.
@@ -538,79 +540,85 @@ let mkMultiplayerMissionContent (random : System.Random) (settings : Preparation
                 state.World.Airfields.Values
                 |> Seq.filter (fun af -> af.Position.IsInConvexPolygon boundary && af.IsActive)
             for af in within do
-                let minLength =
-                    try
+                let coalition = state.GetOwner(af.Region)
+                // Check coalition spawn settings
+                let spawnEnabled =
+                    match coalition with
+                    | Some Axis -> settings.EnableAxisSpawns
+                    | Some Allies -> settings.EnableAlliesSpawns
+                    | _ -> true
+                if spawnEnabled then
+                    let minLength =
+                        try
+                            state.GetNumPlanes(af.AirfieldId)
+                            |> Map.toSeq
+                            |> Seq.map (fun (planeId, qty) -> if qty >= 1.0f then float32 state.World.PlaneSet.[planeId].MinRunwayLength else 0.0f)
+                            |> Seq.max
+                        with _ -> 0.0f
+                    let runway =
+                        af.PickAgainstWind(wind, minLength)
+                    let planes =
                         state.GetNumPlanes(af.AirfieldId)
                         |> Map.toSeq
-                        |> Seq.map (fun (planeId, qty) -> if qty >= 1.0f then float32 state.World.PlaneSet.[planeId].MinRunwayLength else 0.0f)
-                        |> Seq.max
-                    with _ -> 0.0f
-                let runway =
-                    af.PickAgainstWind(wind, minLength)
-                let coalition =
-                    state.GetOwner(af.Region)
-                let planes =
-                    state.GetNumPlanes(af.AirfieldId)
-                    |> Map.toSeq
-                    |> Seq.collect (fun (planeId, num) ->
-                        if num >= 1.0f then
-                            let planes =
-                                match state.World.PlaneAlts.TryGetValue planeId with
-                                | true, planes -> planes
-                                | false, _ -> [state.World.PlaneSet.[planeId]]
-                            planes
-                            |> Seq.choose (fun plane ->
-                                if Some plane.Coalition = coalition then
-                                    let forbiddenMods =
-                                        plane.WeaponModsCosts
-                                        |> List.filter (fun (wmod, cost) -> (float32 cost) > state.GetCoalitionBudget(plane.Coalition))
-                                    let allowedMods =
-                                        match forbiddenMods with
-                                        | [] ->
-                                            [ModRange.Interval(1, plane.LastWeaponMod)]
-                                        | _ ->
-                                            let sorted =
-                                                forbiddenMods
-                                                |> List.map fst
-                                                |> List.sort
-                                            ([1, plane.LastWeaponMod], sorted)
-                                            ||> List.fold (fun ranges wmod ->
-                                                ranges
-                                                |> List.collect (fun (a, b) ->
-                                                    if a < wmod && wmod < b then
-                                                        [(a, wmod - 1); (wmod + 1, b)]
-                                                    elif a = wmod && wmod = b then
-                                                        []
-                                                    elif a = wmod then
-                                                        [wmod + 1, b]
-                                                    elif wmod = b then
-                                                        [a, wmod - 1]
+                        |> Seq.collect (fun (planeId, num) ->
+                            if num >= 1.0f then
+                                let planes =
+                                    match state.World.PlaneAlts.TryGetValue planeId with
+                                    | true, planes -> planes
+                                    | false, _ -> [state.World.PlaneSet.[planeId]]
+                                planes
+                                |> Seq.choose (fun plane ->
+                                    if Some plane.Coalition = coalition then
+                                        let forbiddenMods =
+                                            plane.WeaponModsCosts
+                                            |> List.filter (fun (wmod, cost) -> (float32 cost) > state.GetCoalitionBudget(plane.Coalition))
+                                        let allowedMods =
+                                            match forbiddenMods with
+                                            | [] ->
+                                                [ModRange.Interval(1, plane.LastWeaponMod)]
+                                            | _ ->
+                                                let sorted =
+                                                    forbiddenMods
+                                                    |> List.map fst
+                                                    |> List.sort
+                                                ([1, plane.LastWeaponMod], sorted)
+                                                ||> List.fold (fun ranges wmod ->
+                                                    ranges
+                                                    |> List.collect (fun (a, b) ->
+                                                        if a < wmod && wmod < b then
+                                                            [(a, wmod - 1); (wmod + 1, b)]
+                                                        elif a = wmod && wmod = b then
+                                                            []
+                                                        elif a = wmod then
+                                                            [wmod + 1, b]
+                                                        elif wmod = b then
+                                                            [a, wmod - 1]
+                                                        else
+                                                            [a, b]))
+                                                |> List.choose (fun (a, b) ->
+                                                    if a < b then
+                                                        Some(Interval(a, b))
+                                                    elif a = b then
+                                                        Some(One(a))
                                                     else
-                                                        [a, b]))
-                                            |> List.choose (fun (a, b) ->
-                                                if a < b then
-                                                    Some(Interval(a, b))
-                                                elif a = b then
-                                                    Some(One(a))
-                                                else
-                                                    None)
-                                    Some ( { PlayerSpawnPlane.Default plane with AllowedMods = allowedMods } )
-                                else
-                                    None)
-                        else
-                            Seq.empty)
-                    |> List.ofSeq
-                let spawn =
-                    {
-                        Airfield = af.AirfieldId
-                        SpawnType = Parking warmedUp
-                        Pos = runway.SpawnPos
-                        RunwayName = runway.Name
-                        Flight = Unconstrained planes
-                    }
-                // Avoid putting stuff such as enemy camps too close to spawns
-                locator.MarkArea(mkCircle(spawn.Pos.Pos, 2500.0f))
-                yield spawn
+                                                        None)
+                                        Some ( { PlayerSpawnPlane.Default plane with AllowedMods = allowedMods } )
+                                    else
+                                        None)
+                            else
+                                Seq.empty)
+                        |> List.ofSeq
+                    let spawn =
+                        {
+                            Airfield = af.AirfieldId
+                            SpawnType = Parking warmedUp
+                            Pos = runway.SpawnPos
+                            RunwayName = runway.Name
+                            Flight = Unconstrained planes
+                        }
+                    // Avoid putting stuff such as enemy camps too close to spawns
+                    locator.MarkArea(mkCircle(spawn.Pos.Pos, 2500.0f))
+                    yield spawn
         ]
     logger.Info(sprintf "Done (%d)" spawns.Length)
 

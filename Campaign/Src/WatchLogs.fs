@@ -60,8 +60,9 @@ type System.IO.Directory with
                     logger.Debug("New FileSystemWatcher started")
                     // Stop previous file system watcher after starting the new one, so that no log
                     // file creation may happen while no watcher is active.
+                    do! Async.Sleep(50)  // delay to allow overlap between new and old producers
                     stopPrev()
-                    do! Async.Sleep(300000)
+                    do! Async.Sleep(30000)
                     watcher.EnableRaisingEvents <- false
                     if not(token.IsCancellationRequested) then
                         return! producer(fun() -> watcher.Dispose(); logger.Debug("Previous FileSystemWatcher stopped"))
