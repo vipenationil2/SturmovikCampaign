@@ -114,10 +114,10 @@ module WorldWar2Internal =
                 MaxPlanesAtAirfield = maxPlanesAtAirfield
                 MinActiveAirfieldResources = minActiveAirfieldResources
                 MinRegionBuildingCapacity = minRegionBuildingCapacity
-                NewPlanesPeriod = 7.0f * day
-                NumNewPlanes = 300.0f
-                NewTroopsPeriod = 3.0f * day
-                NumNewTroops = 1000.0f<MGF>
+                NewPlanesPeriod = 1.0f * day  // was 7 days
+                NumNewPlanes = 43.0f          // was 300 planes
+                NewTroopsPeriod = 1.0f * day  // was 3 days
+                NumNewTroops = 333.0f<MGF>    // was 1000 troops
                 EarliestStart = 7.0f<H> + seasonShorten
                 LatestStart = 17.0f<H> - seasonShorten
                 MinStartDiff = 5.0f<H>
@@ -1252,7 +1252,7 @@ type WorldWar2(world : World, C : Constants) =
                     else
                         newTime
                 let period (t : System.DateTime) =
-                    int(24.0f<H> * float32 (t - war.World.StartDate).Days / C.NewPlanesPeriod)
+                    int(24.0f<H> * float32 (t - war.World.StartDate).Days / this.newPlanesPeriod)
                 // Add new planes
                 if period war.Date < period newTime then
                     let newPlanesDelivery(numPlanes : float32) =
@@ -1418,6 +1418,8 @@ type WorldWar2(world : World, C : Constants) =
         member this.DeserializeStepData(json : string) =
             let implData : ImplData = Json.deserializeEx JsonConfig.IL2Default json
             implData :> obj
+
+    member this.newPlanesPeriod = C.NewPlanesPeriod
 
     static member LoadFromFile(world : World, path : string) =
         let json = System.IO.File.ReadAllText(path)
