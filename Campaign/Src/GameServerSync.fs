@@ -1096,7 +1096,15 @@ type Sync(settings : Settings, gameServer : IGameServerControl, ?logger) =
     /// Check current state and act accordingly
     member this.ResumeAsync(?restartsLeft, ?skipsLeft) =
         let restartsLeft = defaultArg restartsLeft maxRetries
-        let skipsLeft = defaultArg skipsLeft 5
+        let skipsLeft =
+            match controller with
+            | Some (:? WorldWar2 as ww2) ->
+                let skips = float32 ww2.newPlanesPeriod / (settings.SimulatedDuration / 1440.0f)
+                defaultArg skipsLeft (int (ceil skips))
+            | Some _ ->
+                defaultArg skipsLeft 5
+            | None ->  // should not arrive here
+                defaultArg skipsLeft 0
         async {
             try
                 logger.Trace restartsLeft
