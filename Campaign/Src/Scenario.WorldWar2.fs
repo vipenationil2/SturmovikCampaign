@@ -1252,7 +1252,7 @@ type WorldWar2(world : World, C : Constants) =
                     else
                         newTime
                 let period (t : System.DateTime) =
-                    int(24.0f<H> * float32 (t - war.World.StartDate).Days / C.NewPlanesPeriod)
+                    int(24.0f<H> * float32 (t - war.World.StartDate).Days / this.newPlanesPeriod)
                 // Add new planes
                 if period war.Date < period newTime then
                     let newPlanesDelivery(numPlanes : float32) =
@@ -1418,6 +1418,8 @@ type WorldWar2(world : World, C : Constants) =
         member this.DeserializeStepData(json : string) =
             let implData : ImplData = Json.deserializeEx JsonConfig.IL2Default json
             implData :> obj
+
+    member this.newPlanesPeriod = C.NewPlanesPeriod
 
     static member LoadFromFile(world : World, path : string) =
         let json = System.IO.File.ReadAllText(path)
