@@ -1236,7 +1236,7 @@ type WorldWar2(world : World, C : Constants) =
             let comment = $"{side} {side.Grammar.VerbHave} the initiative"
             oneSideStrikes data side comment 1
 
-        member this.NewDay(war) =
+        member this.NewDay(war, settings) =
             seq {
                 let random = System.Random(int32(war.Date.Ticks &&& 0x7FFFFFFFL))
                 let timeDiff = C.MinStartDiff + float32(random.NextDouble() * double(C.MaxStartDiff - C.MinStartDiff)) * 1.0f<H>
@@ -1282,14 +1282,14 @@ type WorldWar2(world : World, C : Constants) =
                         let deficit = max 0.0f (targetQty - currentQty)
                         urgencyWeight kind * deficit)
 
-                let allocatePlanesByDeficit (planes: PlaneModel list) (deficits: Map<PlaneType, float32>) =
+                let allocatePlanesByDeficit (planes: PlaneModel list) (deficits: Map<PlaneType, float32>) (totalQty: float32) =
                     planes
                     |> List.groupBy (fun plane -> plane.Kind)
                     |> List.collect (fun (kind, kindPlanes) ->
                         match deficits.TryFind kind with
                         | Some kindQty when kindQty > 0.0f ->
                             let totalCost = kindPlanes |> List.sumBy (fun p -> p.Cost)
-                            kindPlanes |> List.map (fun plane -> plane, kindQty * plane.Cost / totalCost)
+                            kindPlanes |> List.map (fun plane -> plane, totalQty * kindQty * plane.Cost / totalCost)
                         | _ -> []
                     )
 
@@ -1305,10 +1305,35 @@ type WorldWar2(world : World, C : Constants) =
                         let forCoalition (coalition: CoalitionId) =
                             let planes = allPlanesOf coalition
                             let current = currentInventoryByType war coalition
-                            let totalCurrent = current |> Map.toSeq |> Seq.sumBy snd
-                            let target = targetInventoryByType totalCurrent coalition
-                            let weightedDeficits = computeWeightedDeficits current target urgencyWeight
-                            allocatePlanesByDeficit planes weightedDeficits
+                            let fighterCount = Map.tryFind Fighter current |> Option.defaultValue 0.0f
+
+                            if fighterCount < float32 settings.MinFightersInPlayableMission then
+                                // Phase 1: Deliver inexpensive fighters
+                                let fighters = planes |> List.filter (fun p -> p.Kind = Fighter) |> List.sortBy (fun p -> p.Cost)
+                                let totalCost = fighters |> List.sumBy (fun p -> p.Cost)
+                                let fighterDeliveries = fighters |> List.map (fun p -> p, numPlanes * p.Cost / totalCost)
+
+                                // Estimate how many fighters this adds
+                                let addedFighters = fighterDeliveries |> List.sumBy snd
+                                let newFighterCount = fighterCount + addedFighters
+
+                                // Phase 2: If threshold is now met, allocate remaining budget doctrinally
+                                if newFighterCount >= float32 settings.MinFightersInPlayableMission then
+                                    let spent = fighterDeliveries |> List.sumBy (fun (_, qty) -> qty)
+                                    let remaining = max 0.0f (numPlanes - spent)
+                                    let totalCurrent = current |> Map.toSeq |> Seq.sumBy snd
+                                    let target = targetInventoryByType totalCurrent coalition
+                                    let weightedDeficits = computeWeightedDeficits current target urgencyWeight
+                                    let doctrinalDeliveries = allocatePlanesByDeficit planes weightedDeficits remaining
+                                    fighterDeliveries @ doctrinalDeliveries
+                                else
+                                    fighterDeliveries
+                            else
+                                // Threshold already met—pure doctrinal allocation
+                                let totalCurrent = current |> Map.toSeq |> Seq.sumBy snd
+                                let target = targetInventoryByType totalCurrent coalition
+                                let weightedDeficits = computeWeightedDeficits current target urgencyWeight
+                                allocatePlanesByDeficit planes weightedDeficits numPlanes
 
                         Map.ofList [
                             Axis, forCoalition Axis
