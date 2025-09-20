@@ -757,7 +757,7 @@ type Sync(settings : Settings, gameServer : IGameServerControl, ?logger) =
                 let events =
                     seq {
                         yield! sim.DoAll()
-                        for cmd in sctrl.NewDay(war) do
+                        for cmd in sctrl.NewDay(war, settings) do
                             yield cmd
                     }
                 let results =
