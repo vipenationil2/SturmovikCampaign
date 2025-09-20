@@ -1254,31 +1254,96 @@ type WorldWar2(world : World, C : Constants) =
                 let period (t : System.DateTime) =
                     int(24.0f<H> * float32 (t - war.World.StartDate).Days / this.newPlanesPeriod)
                 // Add new planes
+                let planeTypeShares = Campaign.PlaneModelDb.planeTypeShares
+
+                let currentInventoryByType (war: IWarStateQuery) (coalition: CoalitionId) =
+                    war.World.Airfields.Values
+                    |> Seq.filter (fun af -> war.GetOwner(af.Region) = Some coalition)
+                    |> Seq.collect (fun af -> war.GetNumPlanes af.AirfieldId |> Map.toSeq)
+                    |> Seq.choose (fun (planeId, qty) ->
+                        try
+                            match Campaign.PlaneModelDb.tryGetPlaneByName (planeId.ToString()) with
+                            | Some model -> Some(model.Kind, qty)
+                            | None -> None
+                        with _ -> None
+                    )
+                    |> Seq.groupBy fst
+                    |> Seq.map (fun (role, items) -> role, items |> Seq.sumBy snd)
+                    |> Map.ofSeq
+
+                let targetInventoryByType (total: float32) (coalition: CoalitionId) =
+                    planeTypeShares(coalition)
+                    |> Map.map (fun _ share -> total * share)
+
+                let computeWeightedDeficits (current: Map<PlaneType, float32>) (target: Map<PlaneType, float32>) (urgencyWeight: PlaneType -> float32) =
+                    target
+                    |> Map.map (fun kind targetQty ->
+                        let currentQty = Map.tryFind kind current |> Option.defaultValue 0.0f
+                        let deficit = max 0.0f (targetQty - currentQty)
+                        urgencyWeight kind * deficit)
+
+                let allocatePlanesByDeficit (planes: PlaneModel list) (deficits: Map<PlaneType, float32>) =
+                    planes
+                    |> List.groupBy (fun plane -> plane.Kind)
+                    |> List.collect (fun (kind, kindPlanes) ->
+                        match deficits.TryFind kind with
+                        | Some kindQty when kindQty > 0.0f ->
+                            let totalCost = kindPlanes |> List.sumBy (fun p -> p.Cost)
+                            kindPlanes |> List.map (fun plane -> plane, kindQty * plane.Cost / totalCost)
+                        | _ -> []
+                    )
+
                 if period war.Date < period newTime then
-                    let newPlanesDelivery(numPlanes : float32) =
-                        let forCoalition (coalition : CoalitionId) =
+                    let urgencyWeight kind =
+                        match kind with
+                        | Fighter -> 2.0f
+                        | Attacker -> 1.2f
+                        | Bomber -> 1.0f
+                        | Transport -> 0.5f
+
+                    let newPlanesDelivery (war: IWarStateQuery) (numPlanes: float32) =
+                        let forCoalition (coalition: CoalitionId) =
                             let planes = allPlanesOf coalition
-                            let totalCost =
-                                planes
-                                |> List.sumBy (fun plane -> plane.Cost)
-                            planes
-                            |> List.map (fun plane -> plane, numPlanes * plane.Cost / totalCost)
+                            let current = currentInventoryByType war coalition
+                            let totalCurrent = current |> Map.toSeq |> Seq.sumBy snd
+                            let target = targetInventoryByType totalCurrent coalition
+                            let weightedDeficits = computeWeightedDeficits current target urgencyWeight
+                            allocatePlanesByDeficit planes weightedDeficits
 
                         Map.ofList [
                             Axis, forCoalition Axis
                             Allies, forCoalition Allies
                         ]
 
-                    let newPlanes = newPlanesDelivery(C.NumNewPlanes)
+                    let deliverToAirfields (war: IWarStateQuery) (coalition: CoalitionId) (plane: PlaneModel) (qty: float32) =
+                        seq {
+                            let airfields =
+                                war.World.Airfields.Values
+                                |> Seq.filter (fun af -> war.World.Regions.[af.Region].IsEntry && war.GetOwner(af.Region) = Some coalition)
+                                |> Seq.sortBy (fun af ->
+                                    war.GetNumPlanes af.AirfieldId
+                                    |> Map.tryFind plane.Id
+                                    |> Option.defaultValue 0.0f)
+                                |> Seq.toArray
+
+                            let mutable remaining = qty
+                            for af in airfields do
+                                if remaining <= 0.0f then () else
+                                    let currentQty = war.GetNumPlanes af.AirfieldId |> Map.tryFind plane.Id |> Option.defaultValue 0.0f
+                                    let space = C.MaxPlanesAtAirfield - currentQty
+                                    let deliverQty = min remaining space
+                                    if deliverQty > 0.0f then
+                                        let message = $"Delivering {qty:F1} of {plane.Name} to {af.AirfieldId} (current: {currentQty}, space: {space})"
+                                        logger.Debug(message)
+                                        yield Some(AddPlane(af.AirfieldId, plane.Id, deliverQty)), "New plane delivery"
+                                        remaining <- remaining - deliverQty
+                        }
+
+                    let newPlanes = newPlanesDelivery war C.NumNewPlanes
                     for coalition in [Axis; Allies] do
-                        let airfields =
-                            war.World.Airfields.Values
-                            |> Seq.filter (fun af -> war.World.Regions.[af.Region].IsEntry && war.GetOwner(af.Region) = Some coalition)
-                            |> Array.ofSeq
-                        let numAirfields = float32 airfields.Length
-                        for af in airfields do
-                            for plane, qty in newPlanes.[coalition] do
-                                yield Some(AddPlane(af.AirfieldId, plane.Id, qty / numAirfields)), "New plane delivery"
+                        for plane, qty in newPlanes.[coalition] do
+                            yield! deliverToAirfields war coalition plane qty
+
                 // Add new troops
                 let period (t : System.DateTime) =
                     int(24.0f<H> * float32 (t - war.World.StartDate).Days / C.NewTroopsPeriod)
