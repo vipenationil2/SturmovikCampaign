@@ -1283,13 +1283,19 @@ type WorldWar2(world : World, C : Constants) =
                         urgencyWeight kind * deficit)
 
                 let allocatePlanesByDeficit (planes: PlaneModel list) (deficits: Map<PlaneType, float32>) (totalQty: float32) =
+                    let totalWeight = deficits |> Map.toSeq |> Seq.sumBy snd
+
                     planes
                     |> List.groupBy (fun plane -> plane.Kind)
                     |> List.collect (fun (kind, kindPlanes) ->
                         match deficits.TryFind kind with
-                        | Some kindQty when kindQty > 0.0f ->
+                        | Some kindWeight when kindWeight > 0.0f ->
                             let totalCost = kindPlanes |> List.sumBy (fun p -> p.Cost)
-                            kindPlanes |> List.map (fun plane -> plane, totalQty * kindQty * plane.Cost / totalCost)
+                            let kindShare = kindWeight / totalWeight
+                            kindPlanes |> List.map (fun plane ->
+                                let costShare = plane.Cost / totalCost
+                                let qty = totalQty * kindShare * costShare
+                                plane, qty)
                         | _ -> []
                     )
 
