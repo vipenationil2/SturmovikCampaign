@@ -1152,7 +1152,7 @@ type Sync(settings : Settings, gameServer : IGameServerControl, ?logger) =
                         return this.Die(msg)
                     | Ok() ->
                     let! resavers =
-                        Async.Sequential(
+                        Async.Parallel(
                             [ gameServer.ResaveMission settings.MissionFile
                               gameServer.ResaveMission settings.AltMissionFile ])
                     match resavers with
