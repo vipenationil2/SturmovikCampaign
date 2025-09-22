@@ -1370,153 +1370,253 @@ type WorldWar2(world : World, C : Constants) =
 
                         (cmds :> seq<Commands option * string>), Map.ofList [ Axis, removedAxis; Allies, removedAllies ]
 
+                       // Helper: sample a bounded normal multiplier (Box-Muller), clamped to a sensible range
+                    let sampleNormalMultiplier (rand : System.Random) mean sd =
+                        let u1 = max 1e-9 (rand.NextDouble())
+                        let u2 = rand.NextDouble()
+                        let r = sqrt(-2.0 * log u1) * cos (2.0 * System.Math.PI * u2)
+                        let v = float32 (mean + sd * r)
+                        // Keep multiplier reasonable to avoid extreme removals/additions
+                        max 0.5f (min 1.5f v)
+
                     let rebalancePlaneAllocation (war: IWarStateQuery) =
+                        // Simplified in-place rebalance limited to the current airfield:
+                        // - For each airfield owned by a coalition, compute per-PlaneType desired counts
+                        //   proportional to coalition target and the airfield's share of the coalition total.
+                        // - Remove proportional surplus by PlaneType from that same airfield (RemovePlane cmds).
+                        // - Reassign the removed quantity inside the same airfield to types that are still in deficit
+                        //   (AddPlane cmds). Returns (removeCommands, addCommands, totalsRemovedPerCoalition).
                         let kinds = [ Fighter; Attacker; Bomber; Transport ]
-                        let commands = ResizeArray<Commands option * string>()
-                        let mutable removedAxis = 0.0f
-                        let mutable removedAllies = 0.0f
+                        let removeCmds = ResizeArray<Commands option * string>()
+                        let addCmds = ResizeArray<Commands option * string>()
+                        let mutable removedTotals = Map.ofList [ Axis, 0.0f; Allies, 0.0f ]
 
+                        // Precompute coalition totals and doctrinal targets
                         for coalition in [ Axis; Allies ] do
-                            let current = currentInventoryByType war coalition
-                            let total = current |> Map.toSeq |> Seq.sumBy snd
-                            if total > 0.0f then
-                                let target = targetInventoryByType total coalition
+                            let coalitionCurrent = currentInventoryByType war coalition
+                            let coalitionTotal = coalitionCurrent |> Map.toSeq |> Seq.sumBy snd
+                            if coalitionTotal <= 0.0f then ()
+                            else
+                                let coalitionTarget = targetInventoryByType coalitionTotal coalition
 
-                                // Instrumentation: log current and target inventories per PlaneType
-                                logger.Debug(sprintf "Plane inventory for %s: total current=%0.1f" (string coalition) total)
-                                for kind in kinds do
-                                    let cur = Map.tryFind kind current |> Option.defaultValue 0.0f
-                                    let tgt = Map.tryFind kind target |> Option.defaultValue 0.0f
-                                    let kindStr =
-                                        match kind with
-                                        | Fighter -> "Fighter"
-                                        | Attacker -> "Attacker"
-                                        | Bomber -> "Bomber"
-                                        | Transport -> "Transport"
-                                    logger.Debug(sprintf "  %s: current=%0.1f target=%0.1f" kindStr cur tgt)
+                                // Iterate each airfield owned by coalition and rebalance only inside it
+                                for af in war.World.Airfields.Values |> Seq.filter (fun af -> war.GetOwner(af.Region) = Some coalition) do
+                                    let afId = af.AirfieldId
+                                    let afPlanesMap = war.GetNumPlanes(afId)
 
-                                let deviation kind =
-                                    let cur = Map.tryFind kind current |> Option.defaultValue 0.0f
-                                    let tgt = Map.tryFind kind target |> Option.defaultValue 0.0f
-                                    if tgt > 0.0f then
-                                        abs (cur - tgt) / tgt
-                                    elif cur > 0.0f then
-                                        1.0f
-                                    else
-                                        0.0f
+                                    // Current counts per PlaneType at this airfield
+                                    let currentByTypeAtAf =
+                                        kinds
+                                        |> List.map (fun k ->
+                                            let qty =
+                                                afPlanesMap
+                                                |> Map.toSeq
+                                                |> Seq.choose (fun (mid, q) ->
+                                                    match Campaign.PlaneModelDb.tryGetPlaneByName (string mid) with
+                                                    | Some pm when pm.Kind = k -> Some q
+                                                    | _ -> None)
+                                                |> Seq.sum
+                                            k, qty)
+                                        |> Map.ofList
 
-                                if kinds |> List.exists (fun k -> deviation k > 0.25f) then
+                                    let afTotal = currentByTypeAtAf |> Map.toSeq |> Seq.sumBy snd |> max 1.0f
+
+                                    // Desired counts at this airfield: split coalition target by airfield weight = afTotal / coalitionTotal
+                                    let desiredAtAfByType =
+                                        coalitionTarget
+                                        |> Map.map (fun _ tgt -> tgt * (afTotal / max 1.0f coalitionTotal))
+
+                                    // 1) Compute and emit removals per type (proportional across models of that kind at this airfield)
+                                    // Track per-type removed at this airfield to later use for local redistribution
+                                    let removedAtAfByType =
+                                        kinds
+                                        |> List.map (fun kind ->
+                                            let curAt = Map.tryFind kind currentByTypeAtAf |> Option.defaultValue 0.0f
+                                            let desired = Map.tryFind kind desiredAtAfByType |> Option.defaultValue 0.0f
+                                            let removeAmt = max 0.0f (curAt - desired)
+                                            kind, removeAmt)
+                                        |> Map.ofList
+
+                                    // For each PlaneType remove proportionally across models present at this airfield
                                     for kind in kinds do
-                                        let cur = Map.tryFind kind current |> Option.defaultValue 0.0f
-                                        let tgt = Map.tryFind kind target |> Option.defaultValue 0.0f
-                                        if cur > tgt then
-                                            let mutable remainingToRemove = cur - tgt
-                                            let models = allPlanesOf coalition |> List.filter (fun p -> p.Kind = kind)
-                                            for model in models do
-                                                if remainingToRemove <= 0.0f then ()
-                                                else
-                                                    let afsWithQty =
-                                                        war.World.Airfields.Values
-                                                        |> Seq.map (fun af -> af.AirfieldId, war.GetNumPlanes(af.AirfieldId) |> Map.tryFind model.Id |> Option.defaultValue 0.0f)
-                                                        |> Seq.filter (fun (_, q) -> q > 0.0f)
-                                                        |> Seq.sortByDescending snd
-                                                        |> List.ofSeq
-                                                    for (afid, qtyAtAf) in afsWithQty do
-                                                        if remainingToRemove <= 0.0f then ()
-                                                        else
-                                                            let removeQty = min qtyAtAf remainingToRemove
-                                                            if removeQty > 0.0f then
-                                                                let message = $"Rebalance:  Remove {removeQty:F1} of {model.Name} from {string afid}"
-                                                                logger.Debug(message)
-                                                                commands.Add(Some(RemovePlane(afid, model.Id, removeQty)), sprintf "Rebalance: remove %0.1f %s from %s" removeQty model.Name (string afid))
-                                                                remainingToRemove <- remainingToRemove - removeQty
-                                                                match coalition with
-                                                                | Axis -> removedAxis <- removedAxis + removeQty
-                                                                | Allies -> removedAllies <- removedAllies + removeQty
+                                        let toRemoveTotal = Map.tryFind kind removedAtAfByType |> Option.defaultValue 0.0f
+                                        if toRemoveTotal > 0.0f then
+                                            let modelsOfKind =
+                                                afPlanesMap
+                                                |> Map.toSeq
+                                                |> Seq.choose (fun (mid, q) ->
+                                                    match Campaign.PlaneModelDb.tryGetPlaneByName (string mid) with
+                                                    | Some pm when pm.Kind = kind && q > 0.0f -> Some(mid, pm, q)
+                                                    | _ -> None)
+                                                |> List.ofSeq
+                                            let totalKindQty = modelsOfKind |> Seq.sumBy (fun (_,_,q) -> q) |> max 1.0f
+                                            for (mid, pm, qtyAt) in modelsOfKind do
+                                                let proportion = qtyAt / totalKindQty
+                                                let removeQty = min qtyAt (toRemoveTotal * proportion)
+                                                if removeQty > 0.0f then
+                                                    let msg = sprintf "Rebalance remove %0.1f of %s from %s" removeQty pm.Name (string afId)
+                                                    logger.Debug(msg)
+                                                    removeCmds.Add(Some(RemovePlane(afId, mid, removeQty)), msg)
+                                                    removedTotals <- removedTotals.Add(coalition, removedTotals.[coalition] + removeQty)
 
-                        // Return commands as a seq and totals per coalition
-                        (commands :> seq<Commands option * string>), Map.ofList [ Axis, removedAxis; Allies, removedAllies ]
+                                    // 2) Local redistribution: sum removed at this airfield and assign to deficit types inside same airfield
+                                    let totalRemovedAtAf =
+                                        removedAtAfByType |> Map.toSeq |> Seq.sumBy snd
+
+                                    if totalRemovedAtAf > 0.0f then
+                                        // Compute deficits at this airfield taking into account removals just scheduled:
+                                        // currentAfterRemovals = currentByTypeAtAf - removedAtAfByType
+                                        let currentAfterRemovals =
+                                            kinds
+                                            |> List.map (fun k ->
+                                                let cur = Map.tryFind k currentByTypeAtAf |> Option.defaultValue 0.0f
+                                                let removed = Map.tryFind k removedAtAfByType |> Option.defaultValue 0.0f
+                                                k, max 0.0f (cur - removed))
+                                            |> Map.ofList
+
+                                        let deficitAtAfByType =
+                                            kinds
+                                            |> List.map (fun k ->
+                                                let desired = Map.tryFind k desiredAtAfByType |> Option.defaultValue 0.0f
+                                                let curAfter = Map.tryFind k currentAfterRemovals |> Option.defaultValue 0.0f
+                                                k, max 0.0f (desired - curAfter))
+                                            |> Map.ofList
+
+                                        let totalDeficit = deficitAtAfByType |> Map.toSeq |> Seq.sumBy snd |> max 1.0f
+
+                                        // Allocate removed planes to deficit types proportionally, and emit AddPlane to models of that kind at same airfield.
+                                        for kind in kinds do
+                                            let deficit = Map.tryFind kind deficitAtAfByType |> Option.defaultValue 0.0f
+                                            if deficit > 0.0f then
+                                                let alloc = totalRemovedAtAf * (deficit / totalDeficit)
+                                                // Candidate models at this airfield for this kind; if none exist pick coalition models of that kind (rear placement)
+                                                let candidates =
+                                                    afPlanesMap
+                                                    |> Map.toSeq
+                                                    |> Seq.map (fun (mid,q) ->
+                                                        match Campaign.PlaneModelDb.tryGetPlaneByName (string mid) with
+                                                        | Some pm when pm.Kind = kind -> Some(afId, mid, pm, q)
+                                                        | _ -> None)
+                                                    |> Seq.choose id
+                                                    |> List.ofSeq
+                                                let candidates =
+                                                    if candidates.IsEmpty then
+                                                        // create candidates from coalition models of this kind with zero current qty at af
+                                                        allPlanesOf coalition
+                                                        |> List.filter (fun p -> p.Kind = kind)
+                                                        |> List.map (fun pm -> (afId, pm.Id, pm, 0.0f))
+                                                    else candidates
+                                                if not candidates.IsEmpty then
+                                                    // weight emptier stacks higher: w = 1/(cur+1)
+                                                    let weighted = candidates |> List.map (fun (afid, mid, pm, curQty) -> afid, mid, pm, curQty, (1.0f / (curQty + 1.0f)))
+                                                    let totalW = weighted |> Seq.sumBy (fun (_,_,_,_,w) -> w) |> max 1.0f
+                                                    for (afid, mid, pm, curQty, w) in weighted do
+                                                        let addQty = alloc * (w / totalW)
+                                                        if addQty > 0.0f then
+                                                            // respect airfield capacity
+                                                            let space = C.MaxPlanesAtAirfield - curQty
+                                                            let deliverQty = min addQty space
+                                                            if deliverQty > 0.0f then
+                                                                let msg = sprintf "Rebalance add %0.1f of %s to %s" deliverQty pm.Name (string afid)
+                                                                logger.Debug(msg)
+                                                                addCmds.Add(Some(AddPlane(afid, mid, deliverQty)), msg)
+
+                        (removeCmds :> seq<Commands option * string>, addCmds :> seq<Commands option * string>, removedTotals)
 
                             
 
-                    let newPlanesDelivery (war: IWarStateQuery) (numPlanes: float32) (totalRemovedByCoalition: Map<CoalitionId, float32>) =
+                    let newPlanesDelivery (war: IWarStateQuery) (numPlanes: float32) =
+                        // Produce per-coalition per-model deliveries (doctrinal weighting + deficits).
+                        // Returns a map Coalition -> (PlaneModel * qty) list
                         let forCoalition (coalition: CoalitionId) =
                             let planes = allPlanesOf coalition
                             let current = currentInventoryByType war coalition
                             let fighterCount = Map.tryFind Fighter current |> Option.defaultValue 0.0f
 
-                            // Treat removed planes as immediately available stock to allocate:
-                            let removedForCoalition = Map.tryFind coalition totalRemovedByCoalition |> Option.defaultValue 0.0f
-                            let effectiveNumPlanes = numPlanes + removedForCoalition
-                            logger.Debug(sprintf "Allocating planes for %s: base=%0.1f removed=%0.1f effective=%0.1f" (string coalition) numPlanes removedForCoalition effectiveNumPlanes)
+                            logger.Debug(sprintf "Allocating %0.1f planes for %s" numPlanes (string coalition))
 
-                            if fighterCount < float32 settings.MinFightersInPlayableMission then
-                                // Phase 1: Deliver inexpensive fighters
-                                let fighters = planes |> List.filter (fun p -> p.Kind = Fighter) |> List.sortBy (fun p -> p.Cost)
-                                let totalCost = fighters |> List.sumBy (fun p -> p.Cost)
-                                let fighterDeliveries =
+                            // Compute doctrinal weighted deficits per PlaneType
+                            let totalCurrent = current |> Map.toSeq |> Seq.sumBy snd
+                            let target = targetInventoryByType totalCurrent coalition
+                            let weightedDeficits = computeWeightedDeficits current target urgencyWeight
+
+                            // First, if fighters below playable threshold, allocate a minimal pool of cheap fighters
+                            let initialAlloc =
+                                if fighterCount < float32 settings.MinFightersInPlayableMission then
+                                    let fighters = planes |> List.filter (fun p -> p.Kind = Fighter) |> List.sortBy (fun p -> p.Cost)
+                                    let totalCost = fighters |> List.sumBy (fun p -> p.Cost)
                                     if totalCost > 0.0f<E> then
-                                        fighters |> List.map (fun p -> p, effectiveNumPlanes * p.Cost / totalCost)
+                                        fighters |> List.map (fun p -> p, numPlanes * p.Cost / totalCost)
                                     else
                                         fighters |> List.map (fun p -> p, 0.0f)
-
-                                // Estimate how many fighters this adds
-                                let addedFighters = fighterDeliveries |> List.sumBy snd
-                                let newFighterCount = fighterCount + addedFighters
-
-                                // Phase 2: If threshold is now met, allocate remaining budget doctrinally
-                                if newFighterCount >= float32 settings.MinFightersInPlayableMission then
-                                    let spent = fighterDeliveries |> List.sumBy (fun (_, qty) -> qty)
-                                    let remaining = max 0.0f (effectiveNumPlanes - spent)
-                                    let totalCurrent = current |> Map.toSeq |> Seq.sumBy snd
-                                    let target = targetInventoryByType totalCurrent coalition
-                                    let weightedDeficits = computeWeightedDeficits current target urgencyWeight
-                                    let doctrinalDeliveries = allocatePlanesByDeficit planes weightedDeficits remaining
-                                    fighterDeliveries @ doctrinalDeliveries
                                 else
-                                    fighterDeliveries
-                            else
-                                // Threshold already met—pure doctrinal allocation
-                                let totalCurrent = current |> Map.toSeq |> Seq.sumBy snd
-                                let target = targetInventoryByType totalCurrent coalition
-                                let weightedDeficits = computeWeightedDeficits current target urgencyWeight
-                                allocatePlanesByDeficit planes weightedDeficits effectiveNumPlanes
+                                    []
 
-                        Map.ofList [
-                            Axis, forCoalition Axis
-                            Allies, forCoalition Allies
-                        ]
+                            // Remaining to allocate doctrinally
+                            let spentInitial = initialAlloc |> List.sumBy snd
+                            let remaining = max 0.0f (numPlanes - spentInitial)
+
+                            // For doctrinal allocation, compute per-model shares inside each PlaneType based on deficits.
+                            let doctrinalAlloc = allocatePlanesByDeficit planes weightedDeficits remaining
+
+                            // Merge allocations: prefer initialAlloc (fighters) then doctrinal
+                            let merged =
+                                seq {
+                                    for (p, q) in initialAlloc -> p, q
+                                    for (p, q) in doctrinalAlloc -> p, q
+                                }
+                                |> Seq.groupBy fst
+                                |> Seq.map (fun (p, grp) -> p, (grp |> Seq.sumBy snd))
+                                |> Seq.toList
+                            Map.ofList [ coalition, merged ]
+                        // Return a map Coalition -> list (plane, qty)
+                        forCoalition |> ignore
+                        Map.ofList [ Axis, (forCoalition Axis).[Axis]; Allies, (forCoalition Allies).[Allies] ]
 
                     let deliverToAirfields (war: IWarStateQuery) (coalition: CoalitionId) (plane: PlaneModel) (qty: float32) =
                         seq {
+                            // Deliver to rear (entry) airfields only
                             let airfields =
                                 war.World.Airfields.Values
                                 |> Seq.filter (fun af -> war.World.Regions.[af.Region].IsEntry && war.GetOwner(af.Region) = Some coalition)
-                                |> Seq.toArray
-
-                            let numAirfields = airfields.Length
-                            if numAirfields > 0 then
-                                let baseQty = qty / float32 numAirfields
+                                |> Seq.toList
+                            if qty <= 0.0f || airfields.IsEmpty then
+                                ()
+                            else
+                                // Sort models delivery order externally by model fleet shortage: caller should call with models ordered by least fleet inventory first.
+                                // For this model, prefer airfields with least current count of this model
+                                let afsSorted =
+                                    airfields
+                                    |> List.map (fun af ->
+                                        let currentQty = war.GetNumPlanes(af.AirfieldId) |> Map.tryFind plane.Id |> Option.defaultValue 0.0f
+                                        (af, currentQty))
+                                    |> List.sortBy snd
+                                    |> List.map fst
                                 let mutable remaining = qty
-
-                                for af in airfields do
-                                    let currentQty = war.GetNumPlanes af.AirfieldId |> Map.tryFind plane.Id |> Option.defaultValue 0.0f
-                                    let space = C.MaxPlanesAtAirfield - currentQty
-                                    let deliverQty = min baseQty space |> min remaining
-                                    if deliverQty > 0.0f then
-                                        let message = $"Delivering {deliverQty:F1} of {plane.Name} to {af.AirfieldId} (current: {currentQty}, space: {space})"
-                                        logger.Debug(message)
-                                        yield Some(AddPlane(af.AirfieldId, plane.Id, deliverQty)), "New plane delivery"
-                                        remaining <- remaining - deliverQty
+                                for af in afsSorted do
+                                    if remaining <= 0.0f then ()
+                                    else
+                                        let currentQty = war.GetNumPlanes(af.AirfieldId) |> Map.tryFind plane.Id |> Option.defaultValue 0.0f
+                                        let space = C.MaxPlanesAtAirfield - currentQty
+                                        let deliverQty = min space remaining
+                                        if deliverQty > 0.0f then
+                                            let message = sprintf "Delivering %0.1f of %s to %s (current=%0.1f, space=%0.1f)" deliverQty plane.Name af.AirfieldId.AirfieldName (float32 currentQty) (float32 space)
+                                            logger.Debug(message)
+                                            yield Some(AddPlane(af.AirfieldId, plane.Id, deliverQty)), message
+                                            remaining <- remaining - deliverQty
+                                if remaining > 0.0f then
+                                    // Could not place all planes due to space limits; spillover is ignored for now (or could be queued)
+                                    logger.Debug(sprintf "Could not place %0.1f of %s for %s due to space limits" remaining plane.Name (string coalition))
                         }
 
                     let clampCommands, _ = clampRemovals war
                     yield! clampCommands
 
-                    let removalCommands, totalRemovedByCoalition = rebalancePlaneAllocation war
-                    yield! removalCommands
+                    let rebalanceRemoveCmds, rebalanceAddCmds, totalRemovedByCoalition = rebalancePlaneAllocation war
+                    yield! rebalanceRemoveCmds
+                    yield! rebalanceAddCmds
 
-                    let newPlanes = newPlanesDelivery war C.NumNewPlanes totalRemovedByCoalition
+                    let newPlanes = newPlanesDelivery war C.NumNewPlanes
                     for coalition in [Axis; Allies] do
                         for plane, qty in newPlanes.[coalition] do
                             yield! deliverToAirfields war coalition plane qty
