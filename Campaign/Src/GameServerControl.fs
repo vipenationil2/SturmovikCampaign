@@ -79,6 +79,8 @@ type Settings =
         AdPeriod : int
         EnableAlliesSpawns : bool
         EnableAxisSpawns : bool
+        InitialAlliesAirforceSize: float32
+        InitialAxisAirforceSize:  float32
     }
 with
     /// Root of the data dir, passed to resaver.exe
@@ -159,6 +161,8 @@ module IO =
             ad_period : int option
             enable_allies_spawns : bool option
             enable_axis_spawns : bool option
+            initial_allies_airforce_size: float32 option
+            initial_axis_airforce_size: float32 option
         }
     with
         member this.AsSettings =
@@ -202,6 +206,8 @@ module IO =
                 AdPeriod = defaultArg this.ad_period -1
                 EnableAlliesSpawns = defaultArg this.enable_allies_spawns true
                 EnableAxisSpawns = defaultArg this.enable_axis_spawns true
+                InitialAlliesAirforceSize = defaultArg this.initial_allies_airforce_size 1500.0f
+                InitialAxisAirforceSize = defaultArg this.initial_allies_airforce_size 1500.0f
             }
 
     /// Create a default settings file and return its content.
@@ -250,6 +256,8 @@ module IO =
                 ad_period = None
                 enable_allies_spawns = None
                 enable_axis_spawns = None
+                initial_allies_airforce_size = None
+                initial_axis_airforce_size = None
             }
         let json = Json.serialize content
         IO.File.WriteAllText(path, json)

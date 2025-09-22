@@ -529,7 +529,7 @@ type Sync(settings : Settings, gameServer : IGameServerControl, ?logger) =
                     | Some war ->
                         let path = Path.Combine(settings.WorkDir, scenarioCtrlFilename)
                         try
-                            WorldWar2.LoadFromFile(war.World, path)
+                            WorldWar2.LoadFromFile(war.World, path, settings)
                             :> IScenarioController
                             |> Some
                         with exc ->
@@ -539,7 +539,7 @@ type Sync(settings : Settings, gameServer : IGameServerControl, ?logger) =
                     | None ->
                         match world with
                         | Some world ->
-                            let ww2 = WorldWar2(world, WorldWar2Internal.Constants.Default(world.StartDate))
+                            let ww2 = WorldWar2(world, WorldWar2Internal.Constants.Default(world.StartDate), settings)
                             Some(upcast ww2)
                         | None ->
                             None
@@ -662,7 +662,7 @@ type Sync(settings : Settings, gameServer : IGameServerControl, ?logger) =
                     let (world, sctrl : IScenarioController, saveScenarioControoler, axisPlanesFactor, alliesPlanesFactor) =
                         let groundUnitSet = WorldWar2Internal.GroundUnitSet.Default
                         let world = groundUnitSet.Setup world
-                        let ww2 = WorldWar2(world, WorldWar2Internal.Constants.Default(world.StartDate))
+                        let ww2 = WorldWar2(world, WorldWar2Internal.Constants.Default(world.StartDate), settings)
                         world, upcast(ww2), (fun() -> ww2.SaveToFile(wkPath(scenarioCtrlFilename))), 1.0f, 1.0f
                     let pilots =
                         pilots

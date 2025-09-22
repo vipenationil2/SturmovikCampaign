@@ -220,8 +220,10 @@ open Util.Json
 open Campaign.Common.Ship
 
 /// A campaign scenario implementation for WWII in the European and East front theaters: Bomb industry, airfields, harass and protect ground troops
-type WorldWar2(world : World, C : Constants) =
+type WorldWar2(world : World, C : Constants, settings : Campaign.GameServerControl.Settings) =
     let logger = NLog.LogManager.GetCurrentClassLogger()
+
+    let campaignSettings = settings
 
     let totalPlanes : Map<_, float32> -> float32 =
         Map.toSeq >> Seq.sumBy (snd >> floor)
@@ -297,7 +299,13 @@ type WorldWar2(world : World, C : Constants) =
             |> Seq.sum
             |> fun total -> total / (float32 (List.length allPlanes))
         
-        let mutable planesCostLeft = 3.0f * C.NumNewPlanes * avgCost
+        let initialAirforceSize =
+            match friendly with
+            | Axis -> campaignSettings.InitialAxisAirforceSize
+            | Allies -> campaignSettings.InitialAlliesAirforceSize
+            | _ -> 0.0f
+
+        let mutable planesCostLeft = initialAirforceSize * avgCost
 
         // Non-transport planes: Set according to airfield resources and respective cost
         let planeRunCost = typicalRange * planeRunCost
@@ -1237,6 +1245,9 @@ type WorldWar2(world : World, C : Constants) =
                     }
             }
 
+    member this.CampaignSettings
+        with get() : Campaign.GameServerControl.Settings = campaignSettings
+
     interface IScenarioController with
         member this.InitGroundForces(axisForcesNumberCoefficient, alliesForcesNumberCoefficient, war) =
             initGroundForces(axisForcesNumberCoefficient, Axis, war)
@@ -1796,11 +1807,11 @@ type WorldWar2(world : World, C : Constants) =
 
     member this.newPlanesPeriod = C.NewPlanesPeriod
 
-    static member LoadFromFile(world : World, path : string) =
+    static member LoadFromFile(world : World, path : string, settings : Campaign.GameServerControl.Settings) =
         let json = System.IO.File.ReadAllText(path)
         let constructorData : {| Constants : Constants |} =
             Json.deserializeEx JsonConfig.IL2Default json
-        WorldWar2(world, constructorData.Constants)
+        WorldWar2(world, constructorData.Constants, settings)
 
     member this.SaveToFile(path : string) =
         let json = Json.serializeEx JsonConfig.IL2Default {| Constants = C |}
