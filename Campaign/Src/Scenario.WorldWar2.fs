@@ -303,7 +303,6 @@ type WorldWar2(world : World, C : Constants, settings : Campaign.GameServerContr
             match friendly with
             | Axis -> campaignSettings.InitialAxisAirforceSize
             | Allies -> campaignSettings.InitialAlliesAirforceSize
-            | _ -> 0.0f
 
         let mutable planesCostLeft = initialAirforceSize * avgCost
 
