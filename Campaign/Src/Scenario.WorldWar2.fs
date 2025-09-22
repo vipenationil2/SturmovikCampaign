@@ -820,32 +820,35 @@ type WorldWar2(world : World, C : Constants) =
                             airfields
                             |> List.sortBy (fun af2 -> (af.Position - af2.Position).LengthSquared())
                             |> List.filter (fun af2 ->
+                                af2.AirfieldId <> af.AirfieldId &&  // Do not create transfers to the same airfield
                                 let enemyForces = war.GetGroundForces(friendly.Other, af2.Region)
                                 let friendlyForces = war.GetGroundForces(friendly, af2.Region)
                                 enemyForces <= 0.75f * friendlyForces || enemyForces = 0.0f<MGF>
                             )
                         for af2 in destinations do
                             for (plane, qty) in war.GetNumPlanes(af.AirfieldId) |> Map.toSeq do
-                                let airMission =
-                                    {
-                                        StartAirfield = af.AirfieldId
-                                        Objective = af2.Region
-                                        MissionType = PlaneTransfer af2.AirfieldId
-                                        NumPlanes = int qty
-                                        Plane = plane
-                                    }
-                                let mission =
-                                    {
-                                        Kind = AirMission airMission
-                                        Description = sprintf "Evacuation of %s to from %s to %s" (string plane) af.AirfieldId.AirfieldName af2.AirfieldId.AirfieldName
-                                    }
-                                let budget2 = budget.TryCheckoutPlane(af.AirfieldId, checkoutDataAir airMission)
-                                match budget2 with
-                                | Some b ->
-                                    budget <- b
-                                    yield mission
-                                | None ->
-                                    ()
+                                let numPlanesInt = int qty
+                                if numPlanesInt > 0 then  // Guard against fractional stacks producing zero-sized flights
+                                    let airMission =
+                                        {
+                                            StartAirfield = af.AirfieldId
+                                            Objective = af2.Region
+                                            MissionType = PlaneTransfer af2.AirfieldId
+                                            NumPlanes = numPlanesInt
+                                            Plane = plane
+                                        }
+                                    let mission =
+                                        {
+                                            Kind = AirMission airMission
+                                            Description = sprintf "Evacuation of %s to from %s to %s" (string plane) af.AirfieldId.AirfieldName af2.AirfieldId.AirfieldName
+                                        }
+                                    let budget2 = budget.TryCheckoutPlane(af.AirfieldId, checkoutDataAir airMission)
+                                    match budget2 with
+                                    | Some b ->
+                                        budget <- b
+                                        yield mission
+                                    | None ->
+                                        ()
             ]
         Plan ("Airfield evacuation", missions, budget)
 
@@ -1474,20 +1477,19 @@ type WorldWar2(world : World, C : Constants) =
                             let airfields =
                                 war.World.Airfields.Values
                                 |> Seq.filter (fun af -> war.World.Regions.[af.Region].IsEntry && war.GetOwner(af.Region) = Some coalition)
-                                |> Seq.sortBy (fun af ->
-                                    war.GetNumPlanes af.AirfieldId
-                                    |> Map.tryFind plane.Id
-                                    |> Option.defaultValue 0.0f)
                                 |> Seq.toArray
 
-                            let mutable remaining = qty
-                            for af in airfields do
-                                if remaining <= 0.0f then () else
+                            let numAirfields = airfields.Length
+                            if numAirfields > 0 then
+                                let baseQty = qty / float32 numAirfields
+                                let mutable remaining = qty
+
+                                for af in airfields do
                                     let currentQty = war.GetNumPlanes af.AirfieldId |> Map.tryFind plane.Id |> Option.defaultValue 0.0f
                                     let space = C.MaxPlanesAtAirfield - currentQty
-                                    let deliverQty = min remaining space
+                                    let deliverQty = min baseQty space |> min remaining
                                     if deliverQty > 0.0f then
-                                        let message = $"Delivering {qty:F1} of {plane.Name} to {af.AirfieldId} (current: {currentQty}, space: {space})"
+                                        let message = $"Delivering {deliverQty:F1} of {plane.Name} to {af.AirfieldId} (current: {currentQty}, space: {space})"
                                         logger.Debug(message)
                                         yield Some(AddPlane(af.AirfieldId, plane.Id, deliverQty)), "New plane delivery"
                                         remaining <- remaining - deliverQty
