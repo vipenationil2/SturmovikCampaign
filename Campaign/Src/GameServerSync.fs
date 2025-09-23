@@ -891,26 +891,56 @@ type Sync(settings : Settings, gameServer : IGameServerControl, ?logger) =
                 with _ -> None
 
             let latestStartingMissionReport =
-                let sleepTime = 500 // milliseconds
-                let timeout = 2 * 60 * 1000 // 2 minutes
-                let maxTries = timeout / sleepTime
-                let rec keepTrying(i) =
+                // resilient wait loop with exponential backoff + jitter
+                let sleepMs = 500                         // base poll interval (tunable)
+                let timeoutMs = 2 * 60 * 1000             // overall timeout
+                let iterationsPerMinute = max 1 (60000 / sleepMs)
+                let maxTries = max 1 (timeoutMs / sleepMs)
+                let maxBackoffMs = 30000                 // cap backoff at 30s
+                let rnd = System.Random()
+
+                let rec keepTrying(i, backoffMs) =
                     async {
-                        match tryGetLatestStartingMissionReport() with
-                        | Some x ->
-                            logger.Info("Found logs " + x)
-                            return Ok x
-                        | None ->
-                            // Warn every minute if logs have not been found yet
-                            if i > 0 && i % (60000/sleepTime) = 0 then
-                                logger.Warn("Still no logs found. This can happen if the server is slow to load the mission, or if logging isn't enabled in startup.cfg.")
-                            if i >= maxTries then
-                                return Error "Failed to locate game logs"
-                            else
-                                do! Async.Sleep(sleepTime)
-                                return! keepTrying(i + 1)
+                        // respect cancellation immediately
+                        let! ct = Async.CancellationToken
+                        if ct.IsCancellationRequested then
+                            return Error "Canceled while waiting for game logs"
+                        else
+                            try
+                                match tryGetLatestStartingMissionReport() with
+                                | Some x ->
+                                    // success: reset backoff
+                                    logger.Info("Found logs " + x)
+                                    return Ok x
+                                | None ->
+                                    // warn every wall-clock minute
+                                    if i > 0 && i % iterationsPerMinute = 0 then
+                                        logger.Warn("Still no logs found. This can happen if the server is slow to load the mission, or if logging isn't enabled in startup.cfg.")
+                                    if i >= maxTries then
+                                        return Error "Failed to locate game logs"
+                                    else
+                                        // compute delay with jitter
+                                        let baseDelay = min maxBackoffMs backoffMs
+                                        let jitter = rnd.Next(max 1 (baseDelay / 4))
+                                        let delayMs = baseDelay + jitter
+                                        do! Async.AwaitTask(System.Threading.Tasks.Task.Delay(delayMs, ct))
+                                        // grow backoff (exponential), cap it
+                                        let nextBackoff = min maxBackoffMs (backoffMs * 2)
+                                        return! keepTrying(i + 1, nextBackoff)
+                            with ex ->
+                                // transient IO/permission errors -> backoff relative to sleepMs
+                                logger.Warn("Error while searching for mission reports, will retry: " + ex.Message)
+                                logger.Debug(ex)
+                                let errBackoff = min maxBackoffMs (max sleepMs (backoffMs * 2))
+                                let jitter = rnd.Next(max 1 (errBackoff / 4))
+                                try
+                                    do! Async.AwaitTask(System.Threading.Tasks.Task.Delay(errBackoff + jitter, ct))
+                                with
+                                | :? System.OperationCanceledException -> ()
+                                return! keepTrying(i + 1, errBackoff)
                     }
-                keepTrying(0)
+                // start with the base sleep
+                keepTrying(0, sleepMs)
 
             match! latestStartingMissionReport with
             | Error msg ->
@@ -943,7 +973,7 @@ type Sync(settings : Settings, gameServer : IGameServerControl, ?logger) =
                         let commands =
                             let basename = latestStartingMissionReport
                             asyncSeq {
-                                for logFile in WatchLogs.watchLogs settings.MissionLogs basename (TimeSpan.FromMinutes(10.0)) do
+                                for logFile in WatchLogs.watchLogs settings.MissionLogs basename (TimeSpan.FromMinutes(5.0)) do
                                     match logFile with
                                     | WatchLogs.NewLogFile x ->
                                         let lines = IO.File.ReadAllLines(x)
