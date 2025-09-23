@@ -891,7 +891,9 @@ type Sync(settings : Settings, gameServer : IGameServerControl, ?logger) =
                 with _ -> None
 
             let latestStartingMissionReport =
-                let maxTries = 8
+                let sleepTime = 500 // milliseconds
+                let timeout = 2 * 60 * 1000 // 2 minutes
+                let maxTries = timeout / sleepTime
                 let rec keepTrying(i) =
                     async {
                         match tryGetLatestStartingMissionReport() with
@@ -900,12 +902,12 @@ type Sync(settings : Settings, gameServer : IGameServerControl, ?logger) =
                             return Ok x
                         | None ->
                             // Warn every minute if logs have not been found yet
-                            if i > 0 && i % 4 = 0 then
+                            if i > 0 && i % (60000/sleepTime) = 0 then
                                 logger.Warn("Still no logs found. This can happen if the server is slow to load the mission, or if logging isn't enabled in startup.cfg.")
                             if i >= maxTries then
                                 return Error "Failed to locate game logs"
                             else
-                                do! Async.Sleep(15000)
+                                do! Async.Sleep(sleepTime)
                                 return! keepTrying(i + 1)
                     }
                 keepTrying(0)
@@ -941,7 +943,7 @@ type Sync(settings : Settings, gameServer : IGameServerControl, ?logger) =
                         let commands =
                             let basename = latestStartingMissionReport
                             asyncSeq {
-                                for logFile in WatchLogs.watchLogs settings.MissionLogs basename (TimeSpan.FromMinutes(2.0)) do
+                                for logFile in WatchLogs.watchLogs settings.MissionLogs basename (TimeSpan.FromMinutes(10.0)) do
                                     match logFile with
                                     | WatchLogs.NewLogFile x ->
                                         let lines = IO.File.ReadAllLines(x)
