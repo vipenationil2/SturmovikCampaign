@@ -970,29 +970,61 @@ type Sync(settings : Settings, gameServer : IGameServerControl, ?logger) =
                     match war, gameServer with
                     | Some war, (:? IPlayerNotifier as messaging) ->
                         let liveReporter = LiveNotifier(war, messaging, settings.MissionDuration, settings.AdSettings)
-                        let commands =
-                            let basename = latestStartingMissionReport
+
+                        // Build a safe line stream: protect File.ReadAllLines and treat Stalled as termination
+                        let linesSeq =
                             asyncSeq {
-                                for logFile in WatchLogs.watchLogs settings.MissionLogs basename (TimeSpan.FromMinutes(5.0)) do
+                                for logFile in WatchLogs.watchLogs settings.MissionLogs latestStartingMissionReport (TimeSpan.FromMinutes(5.0)) do
                                     match logFile with
                                     | WatchLogs.NewLogFile x ->
-                                        let lines = IO.File.ReadAllLines(x)
-                                        yield! AsyncSeq.ofSeq lines
+                                        try
+                                            let lines = IO.File.ReadAllLines(x)
+                                            yield! AsyncSeq.ofSeq lines
+                                        with ex ->
+                                            logger.Warn(sprintf "Failed to read log file '%s': %s" x ex.Message)
+                                            logger.Debug(ex)
+                                            // continue to next file
                                     | WatchLogs.Stalled ->
+                                        logger.Warn("WatchLogs reported Stalled for '" + latestStartingMissionReport + "'")
                                         stalled.Trigger()
                                         stalledTriggered <- true
+                                        // stop producing lines by yielding an empty async-seq
+                                        yield! AsyncSeq.empty
                             }
+
+                        let commands =
+                            linesSeq
                             |> MissionResults.processLogs liveReporter.LiveHandler war
                             |> AsyncSeq.map (fun { TimeStamp = ts; Command = cmd } -> (ts, cmd))
-                        let cancellation = new Threading.CancellationTokenSource()
-                        Async.Start(AsyncSeq.iter ignore commands, cancellation.Token)
-                        // Give time to execute old commands
-                        do! Async.Sleep(15000)
+
+                        // Start processing as a Task so we can observe failures and cancel it reliably
+                        let processingCts = new Threading.CancellationTokenSource()
+                        let processingTask = Async.StartAsTask(AsyncSeq.iter ignore commands, cancellationToken = processingCts.Token)
+
+                        // Attach simple continuation to log unexpected faults (no restart here, just surface)
+                        processingTask.ContinueWith(fun (t: System.Threading.Tasks.Task) ->
+                            if t.IsFaulted then
+                                logger.Warn("Live log processing faulted: " + (if t.Exception <> null then t.Exception.Flatten().InnerException.Message else "unknown"))
+                                logger.Debug(t.Exception)
+                            elif t.IsCanceled then
+                                logger.Debug("Live log processing canceled")
+                            else
+                                logger.Debug("Live log processing completed")
+                        ) |> ignore
+
+                        // Give time to execute old commands; respect outer cancellation token
+                        try
+                            let! ct = Async.CancellationToken
+                            do! Async.AwaitTask(System.Threading.Tasks.Task.Delay(15000, ct))
+                        with
+                        | :? System.OperationCanceledException -> ()
+
                         liveReporter.UnMute()
+
                         return
                             fun () ->
                                 logger.Info("LiveNotifier terminated")
-                                cancellation.Cancel()
+                                try processingCts.Cancel() with _ -> ()
                     | _ ->
                         logger.Warn("LiveNotifier NOT started")
                         return ignore
