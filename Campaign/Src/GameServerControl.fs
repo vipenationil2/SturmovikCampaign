@@ -434,20 +434,16 @@ type RConGameServerControl(settings : Settings, ?logger) =
                         logger.Warn(exc)
                         failwith "Failed to copy mission to game's dir"
 
-                let resaverDir = IO.Path.Combine(settings.GameDir, "bin", "resaver")
-                let path = IO.Path.Combine(settings.GameMissionPath, filename) + ".Mission"
-                let p = ProcessStartInfo("MissionResaver.exe", sprintf "-d \"%s\" -f \"%s\"" settings.GameDataPath path)
+                let resaverDir = IO.Path.GetFullPath(IO.Path.Combine(settings.GameDir, "bin", "resaver"))
+                let path = IO.Path.GetFullPath(IO.Path.Combine(settings.GameMissionPath, filename) + ".Mission")
+                let exePath = IO.Path.Combine(resaverDir, "MissionResaver.exe")
+                let p = ProcessStartInfo(exePath, sprintf "-d \"%s\" -f \"%s\"" settings.GameDataPath path)
                 p.WorkingDirectory <- resaverDir
                 p.UseShellExecute <- false
                 p.RedirectStandardError <- true
                 p.RedirectStandardOutput <- true
-                let oldCwd = Environment.CurrentDirectory
-                let proc =
-                    try
-                        Environment.CurrentDirectory <- resaverDir
-                        Process.Start(p)
-                    finally
-                        Environment.CurrentDirectory <- oldCwd
+
+                let proc = Process.Start(p)
                 logger.Debug proc.StartInfo.Arguments
 
                 let awaitExited (timeoutMs : int) (pollMs : int) =
