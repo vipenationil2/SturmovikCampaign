@@ -56,7 +56,7 @@ type IScenarioController =
     /// Set plane numbers at the airfields of a coalition
     abstract member InitAirfields : planeNumberCoefficient: float32 * CoalitionId * IWarState -> unit
     abstract member Start : IWarStateQuery * float32<H> -> ScenarioStep
-    abstract member NewDay : IWarStateQuery -> (Commands option * string) seq
+    abstract member NewDay : IWarStateQuery * Campaign.GameServerControl.Settings -> (Commands option * string) seq
     abstract member NextStep : StepData -> (IWarStateQuery * float32<H> -> ScenarioStep)
     abstract member TrySelectMissions : StepData * IWarStateQuery * seed:int * numSelected:int -> MissionSelection option
     abstract member SelectMissions : StepData * IWarStateQuery * seed:int -> Mission list

@@ -529,7 +529,7 @@ type Sync(settings : Settings, gameServer : IGameServerControl, ?logger) =
                     | Some war ->
                         let path = Path.Combine(settings.WorkDir, scenarioCtrlFilename)
                         try
-                            WorldWar2.LoadFromFile(war.World, path)
+                            WorldWar2.LoadFromFile(war.World, path, settings)
                             :> IScenarioController
                             |> Some
                         with exc ->
@@ -539,7 +539,7 @@ type Sync(settings : Settings, gameServer : IGameServerControl, ?logger) =
                     | None ->
                         match world with
                         | Some world ->
-                            let ww2 = WorldWar2(world, WorldWar2Internal.Constants.Default(world.StartDate))
+                            let ww2 = WorldWar2(world, WorldWar2Internal.Constants.Default(world.StartDate), settings)
                             Some(upcast ww2)
                         | None ->
                             None
@@ -662,7 +662,7 @@ type Sync(settings : Settings, gameServer : IGameServerControl, ?logger) =
                     let (world, sctrl : IScenarioController, saveScenarioControoler, axisPlanesFactor, alliesPlanesFactor) =
                         let groundUnitSet = WorldWar2Internal.GroundUnitSet.Default
                         let world = groundUnitSet.Setup world
-                        let ww2 = WorldWar2(world, WorldWar2Internal.Constants.Default(world.StartDate))
+                        let ww2 = WorldWar2(world, WorldWar2Internal.Constants.Default(world.StartDate), settings)
                         world, upcast(ww2), (fun() -> ww2.SaveToFile(wkPath(scenarioCtrlFilename))), 1.0f, 1.0f
                     let pilots =
                         pilots
@@ -757,7 +757,7 @@ type Sync(settings : Settings, gameServer : IGameServerControl, ?logger) =
                 let events =
                     seq {
                         yield! sim.DoAll()
-                        for cmd in sctrl.NewDay(war) do
+                        for cmd in sctrl.NewDay(war, settings) do
                             yield cmd
                     }
                 let results =
@@ -891,24 +891,56 @@ type Sync(settings : Settings, gameServer : IGameServerControl, ?logger) =
                 with _ -> None
 
             let latestStartingMissionReport =
-                let maxTries = 8
-                let rec keepTrying(i) =
+                // resilient wait loop with exponential backoff + jitter
+                let sleepMs = 500                         // base poll interval (tunable)
+                let timeoutMs = 2 * 60 * 1000             // overall timeout
+                let iterationsPerMinute = max 1 (60000 / sleepMs)
+                let maxTries = max 1 (timeoutMs / sleepMs)
+                let maxBackoffMs = 30000                 // cap backoff at 30s
+                let rnd = System.Random()
+
+                let rec keepTrying(i, backoffMs) =
                     async {
-                        match tryGetLatestStartingMissionReport() with
-                        | Some x ->
-                            logger.Info("Found logs " + x)
-                            return Ok x
-                        | None ->
-                            // Warn every minute if logs have not been found yet
-                            if i > 0 && i % 4 = 0 then
-                                logger.Warn("Still no logs found. This can happen if the server is slow to load the mission, or if logging isn't enabled in startup.cfg.")
-                            if i >= maxTries then
-                                return Error "Failed to locate game logs"
-                            else
-                                do! Async.Sleep(15000)
-                                return! keepTrying(i + 1)
+                        // respect cancellation immediately
+                        let! ct = Async.CancellationToken
+                        if ct.IsCancellationRequested then
+                            return Error "Canceled while waiting for game logs"
+                        else
+                            try
+                                match tryGetLatestStartingMissionReport() with
+                                | Some x ->
+                                    // success: reset backoff
+                                    logger.Info("Found logs " + x)
+                                    return Ok x
+                                | None ->
+                                    // warn every wall-clock minute
+                                    if i > 0 && i % iterationsPerMinute = 0 then
+                                        logger.Warn("Still no logs found. This can happen if the server is slow to load the mission, or if logging isn't enabled in startup.cfg.")
+                                    if i >= maxTries then
+                                        return Error "Failed to locate game logs"
+                                    else
+                                        // compute delay with jitter
+                                        let baseDelay = min maxBackoffMs backoffMs
+                                        let jitter = rnd.Next(max 1 (baseDelay / 4))
+                                        let delayMs = baseDelay + jitter
+                                        do! Async.AwaitTask(System.Threading.Tasks.Task.Delay(delayMs, ct))
+                                        // grow backoff (exponential), cap it
+                                        let nextBackoff = min maxBackoffMs (backoffMs * 2)
+                                        return! keepTrying(i + 1, nextBackoff)
+                            with ex ->
+                                // transient IO/permission errors -> backoff relative to sleepMs
+                                logger.Warn("Error while searching for mission reports, will retry: " + ex.Message)
+                                logger.Debug(ex)
+                                let errBackoff = min maxBackoffMs (max sleepMs (backoffMs * 2))
+                                let jitter = rnd.Next(max 1 (errBackoff / 4))
+                                try
+                                    do! Async.AwaitTask(System.Threading.Tasks.Task.Delay(errBackoff + jitter, ct))
+                                with
+                                | :? System.OperationCanceledException -> ()
+                                return! keepTrying(i + 1, errBackoff)
                     }
-                keepTrying(0)
+                // start with the base sleep
+                keepTrying(0, sleepMs)
 
             match! latestStartingMissionReport with
             | Error msg ->
@@ -938,29 +970,61 @@ type Sync(settings : Settings, gameServer : IGameServerControl, ?logger) =
                     match war, gameServer with
                     | Some war, (:? IPlayerNotifier as messaging) ->
                         let liveReporter = LiveNotifier(war, messaging, settings.MissionDuration, settings.AdSettings)
-                        let commands =
-                            let basename = latestStartingMissionReport
+
+                        // Build a safe line stream: protect File.ReadAllLines and treat Stalled as termination
+                        let linesSeq =
                             asyncSeq {
-                                for logFile in WatchLogs.watchLogs settings.MissionLogs basename (TimeSpan.FromMinutes(2.0)) do
+                                for logFile in WatchLogs.watchLogs settings.MissionLogs latestStartingMissionReport (TimeSpan.FromMinutes(5.0)) do
                                     match logFile with
                                     | WatchLogs.NewLogFile x ->
-                                        let lines = IO.File.ReadAllLines(x)
-                                        yield! AsyncSeq.ofSeq lines
+                                        try
+                                            let lines = IO.File.ReadAllLines(x)
+                                            yield! AsyncSeq.ofSeq lines
+                                        with ex ->
+                                            logger.Warn(sprintf "Failed to read log file '%s': %s" x ex.Message)
+                                            logger.Debug(ex)
+                                            // continue to next file
                                     | WatchLogs.Stalled ->
+                                        logger.Warn("WatchLogs reported Stalled for '" + latestStartingMissionReport + "'")
                                         stalled.Trigger()
                                         stalledTriggered <- true
+                                        // stop producing lines by yielding an empty async-seq
+                                        yield! AsyncSeq.empty
                             }
+
+                        let commands =
+                            linesSeq
                             |> MissionResults.processLogs liveReporter.LiveHandler war
                             |> AsyncSeq.map (fun { TimeStamp = ts; Command = cmd } -> (ts, cmd))
-                        let cancellation = new Threading.CancellationTokenSource()
-                        Async.Start(AsyncSeq.iter ignore commands, cancellation.Token)
-                        // Give time to execute old commands
-                        do! Async.Sleep(15000)
+
+                        // Start processing as a Task so we can observe failures and cancel it reliably
+                        let processingCts = new Threading.CancellationTokenSource()
+                        let processingTask = Async.StartAsTask(AsyncSeq.iter ignore commands, cancellationToken = processingCts.Token)
+
+                        // Attach simple continuation to log unexpected faults (no restart here, just surface)
+                        processingTask.ContinueWith(fun (t: System.Threading.Tasks.Task) ->
+                            if t.IsFaulted then
+                                logger.Warn("Live log processing faulted: " + (if t.Exception <> null then t.Exception.Flatten().InnerException.Message else "unknown"))
+                                logger.Debug(t.Exception)
+                            elif t.IsCanceled then
+                                logger.Debug("Live log processing canceled")
+                            else
+                                logger.Debug("Live log processing completed")
+                        ) |> ignore
+
+                        // Give time to execute old commands; respect outer cancellation token
+                        try
+                            let! ct = Async.CancellationToken
+                            do! Async.AwaitTask(System.Threading.Tasks.Task.Delay(15000, ct))
+                        with
+                        | :? System.OperationCanceledException -> ()
+
                         liveReporter.UnMute()
+
                         return
                             fun () ->
                                 logger.Info("LiveNotifier terminated")
-                                cancellation.Cancel()
+                                try processingCts.Cancel() with _ -> ()
                     | _ ->
                         logger.Warn("LiveNotifier NOT started")
                         return ignore
@@ -1096,7 +1160,15 @@ type Sync(settings : Settings, gameServer : IGameServerControl, ?logger) =
     /// Check current state and act accordingly
     member this.ResumeAsync(?restartsLeft, ?skipsLeft) =
         let restartsLeft = defaultArg restartsLeft maxRetries
-        let skipsLeft = defaultArg skipsLeft 5
+        let skipsLeft =
+            match controller with
+            | Some (:? WorldWar2 as ww2) ->
+                let skips = float32 ww2.newPlanesPeriod / (settings.SimulatedDuration / 60.0f)
+                defaultArg skipsLeft (int (ceil skips))
+            | Some _ ->
+                defaultArg skipsLeft 5
+            | None ->  // should not arrive here
+                defaultArg skipsLeft 0
         async {
             try
                 logger.Trace restartsLeft
@@ -1128,6 +1200,7 @@ type Sync(settings : Settings, gameServer : IGameServerControl, ?logger) =
                         if skipsLeft > 0 then
                             state <- Some SkippingMission
                             logger.Info state
+                            logger.Debug("Skips left: " + string skipsLeft)
                             this.SaveState()
                             return! this.ResumeAsync(skipsLeft = skipsLeft - 1)
                         else
@@ -1143,7 +1216,7 @@ type Sync(settings : Settings, gameServer : IGameServerControl, ?logger) =
                         return this.Die(msg)
                     | Ok() ->
                     let! resavers =
-                        Async.Sequential(
+                        Async.Parallel(
                             [ gameServer.ResaveMission settings.MissionFile
                               gameServer.ResaveMission settings.AltMissionFile ])
                     match resavers with

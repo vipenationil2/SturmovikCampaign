@@ -193,6 +193,6 @@ let tryGetPlaneByName name =
 let planeTypeShares(coalition) =
     match coalition with
     | Axis -> [ 0.6f; 0.2f; 0.15f; 0.05f ]
-    | Allies -> [ 0.5f; 0.3f; 0.2f; 0.0f ]
+    | Allies -> [ 0.5f; 0.25f; 0.2f; 0.05f ]
     |> List.zip [ Fighter; Attacker; Bomber; Transport ]
     |> Map.ofList

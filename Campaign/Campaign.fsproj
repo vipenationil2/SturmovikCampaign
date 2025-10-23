@@ -34,13 +34,13 @@
     <Compile Include="Src\Missions.fs" />
     <Compile Include="Src\MissionSelection.fs" />
     <Compile Include="Src\MissionFilePreparation.fs" />
+    <Compile Include="Src\DServerRConClient.fs" />
+    <Compile Include="Src\GameServerControl.fs" />
     <Compile Include="Src\CampaignScenario.fs" />
     <Compile Include="Src\Scenario.WorldWar2.fs" />
-    <Compile Include="Src\DServerRConClient.fs" />
     <Compile Include="Src\MissionResultsExtensions.fs" />
     <Compile Include="Src\MissionResultsStateMachines.fs" />
     <Compile Include="Src\MissionResults.fs" />
-    <Compile Include="Src\GameServerControl.fs" />
     <Compile Include="Src\GameServerSync.fs" />
     <Content Include="Config\durability.csv">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>

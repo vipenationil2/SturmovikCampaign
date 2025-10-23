@@ -34,6 +34,8 @@ type System.IO.Directory with
             // FileSystemWatchers tend to stop responding after a while, for unknown reasons.
             // Starting a new one every 5 minutes works around that problem.
             let rec producer(stopPrev) =
+                let watcherOverlapMs = 50
+                let watcherLifetimeMs = 30000
                 async {
                     let watcher = new FileSystemWatcher(path, filter)
                     watcher.Created.Add(fun ev ->
@@ -60,9 +62,9 @@ type System.IO.Directory with
                     logger.Debug("New FileSystemWatcher started")
                     // Stop previous file system watcher after starting the new one, so that no log
                     // file creation may happen while no watcher is active.
-                    do! Async.Sleep(50)  // delay to allow overlap between new and old producers
+                    do! Async.Sleep(watcherOverlapMs)  // delay to allow overlap between new and old producers
                     stopPrev()
-                    do! Async.Sleep(30000)
+                    do! Async.AwaitTask(System.Threading.Tasks.Task.Delay(watcherLifetimeMs, token))
                     watcher.EnableRaisingEvents <- false
                     if not(token.IsCancellationRequested) then
                         return! producer(fun() -> watcher.Dispose(); logger.Debug("Previous FileSystemWatcher stopped"))
@@ -72,6 +74,7 @@ type System.IO.Directory with
                 }
             let consumer() =
                 asyncSeq {
+                    let consumerBackoffMs = 5000
                     let mutable stalled = false
                     while not(token.IsCancellationRequested) && not stalled do
                         let! success = Async.Catch(Async.AwaitTask(semaphore.WaitAsync(maxTimeBetweenFiles)))
@@ -84,7 +87,11 @@ type System.IO.Directory with
                                 yield NewLogFile s
                             | false, _ ->
                                 logger.Debug("No new files in the queue")
-                                do! Async.Sleep(30000)
+                                // back off but respect cancellation
+                                try
+                                    do! Async.AwaitTask(System.Threading.Tasks.Task.Delay(consumerBackoffMs, token))
+                                with
+                                | :? System.OperationCanceledException -> ()
                         | Choice1Of2 false ->
                             logger.Error("Timeout while waiting for new log file")
                             yield Stalled
@@ -92,7 +99,11 @@ type System.IO.Directory with
                         | Choice2Of2 exn ->
                             logger.Warn("Exception while waiting for new log file")
                             logger.Debug(exn)
-                            do! Async.Sleep(30000)
+                            // back off but respect cancellation
+                            try
+                                do! Async.AwaitTask(System.Threading.Tasks.Task.Delay(consumerBackoffMs, token))
+                            with
+                            | :? System.OperationCanceledException -> ()
                 }
             // Start the producer loop
             Async.Start(producer(ignore), token)

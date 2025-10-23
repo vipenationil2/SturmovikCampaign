@@ -79,6 +79,8 @@ type Settings =
         AdPeriod : int
         EnableAlliesSpawns : bool
         EnableAxisSpawns : bool
+        InitialAlliesAirforceSize: float32
+        InitialAxisAirforceSize:  float32
     }
 with
     /// Root of the data dir, passed to resaver.exe
@@ -159,6 +161,8 @@ module IO =
             ad_period : int option
             enable_allies_spawns : bool option
             enable_axis_spawns : bool option
+            initial_allies_airforce_size: float32 option
+            initial_axis_airforce_size: float32 option
         }
     with
         member this.AsSettings =
@@ -202,6 +206,8 @@ module IO =
                 AdPeriod = defaultArg this.ad_period -1
                 EnableAlliesSpawns = defaultArg this.enable_allies_spawns true
                 EnableAxisSpawns = defaultArg this.enable_axis_spawns true
+                InitialAlliesAirforceSize = defaultArg this.initial_allies_airforce_size 1500.0f
+                InitialAxisAirforceSize = defaultArg this.initial_axis_airforce_size 1500.0f
             }
 
     /// Create a default settings file and return its content.
@@ -250,6 +256,8 @@ module IO =
                 ad_period = None
                 enable_allies_spawns = None
                 enable_axis_spawns = None
+                initial_allies_airforce_size = None
+                initial_axis_airforce_size = None
             }
         let json = Json.serialize content
         IO.File.WriteAllText(path, json)
@@ -272,14 +280,41 @@ type RConGameServerControl(settings : Settings, ?logger) =
     let mutable client = None
     let mutable proc = None
 
+    let checkIfRunning() =
+        let startDir =
+            IO.Path.Combine(settings.GameDir, "bin", "game")
+            |> IO.Path.GetFullPath
+        let procs =
+            Process.GetProcessesByName("DServer")
+            |> Array.filter (fun proc -> IO.Path.GetFullPath(IO.Path.GetDirectoryName(proc.MainModule.FileName)) = startDir)
+        if procs.Length > 0 then
+            if procs.Length > 1 then
+                logger.Warn(
+                    let pids =
+                        procs
+                        |> Seq.map (fun proc -> string proc.Id)
+                        |> String.concat ", "
+                    sprintf "Multiple DServer processes found: %s" pids)
+            logger.Info procs.[0]
+            proc <- Some procs.[0]
+            proc
+        else
+            None
+
+
     let connect() =
         async {
             try
-                let cl = new RConClient.Client(settings.Address, settings.Port, settings.Login, settings.Password)
-                client <- Some cl
-                let! s = cl.Auth()
-                logger.Info("RCon auth response:" + s)
-                return Ok ()
+                match checkIfRunning() with
+                | None ->
+                    logger.Debug("connect:  DServer not running")
+                    return Error "DServer not running"
+                | Some _ ->
+                    let cl = new RConClient.Client(settings.Address, settings.Port, settings.Login, settings.Password)
+                    client <- Some cl
+                    let! s = cl.Auth()
+                    logger.Info("RCon auth response:" + s)
+                    return Ok ()
             with
             | e ->
                 logger.Error e
@@ -307,27 +342,6 @@ type RConGameServerControl(settings : Settings, ?logger) =
             logger.Error e
             Error (sprintf "Failed to start DServer: %s" e.Message)
 
-    let checkIfRunning() =
-        let startDir =
-            IO.Path.Combine(settings.GameDir, "bin", "game")
-            |> IO.Path.GetFullPath
-        let procs =
-            Process.GetProcessesByName("DServer")
-            |> Array.filter (fun proc -> IO.Path.GetFullPath(IO.Path.GetDirectoryName(proc.MainModule.FileName)) = startDir)
-        if procs.Length > 0 then
-            if procs.Length > 1 then
-                logger.Warn(
-                    let pids =
-                        procs
-                        |> Seq.map (fun proc -> string proc.Id)
-                        |> String.concat ", "
-                    sprintf "Multiple DServer processes found: %s" pids)
-            logger.Info procs.[0]
-            proc <- Some procs.[0]
-            proc
-        else
-            None
-
     let kill() =
         if proc.IsNone then
             checkIfRunning()
@@ -341,19 +355,26 @@ type RConGameServerControl(settings : Settings, ?logger) =
             Error (sprintf "Failed to kill DServer: %s" e.Message)
 
     let tryOnClient task =
-        let rec attempt (attemptsLeft : int) =
+        let rec attempt (attemptsLeft : int) (backoffMs : int) =
             async {
                 match client with
                 | Some client' ->
                     try
-                        return! task client'
+                        match checkIfRunning() with
+                        | None ->
+                            logger.Debug("tryOnClient:  DServer not running")
+                            return Error "DServer not running"
+                        | Some _ ->
+                            return! task client'
                     with
                     | exc ->
                         logger.Debug("Failed RConClient task")
                         logger.Debug(exc)
                         client <- None
                         if attemptsLeft > 0 then
-                            return! attempt (attemptsLeft - 1)
+                            // small backoff before retrying
+                            do! Async.Sleep(backoffMs)
+                            return! attempt (attemptsLeft - 1) (min 5000 (backoffMs * 2))
                         else
                             return Error "Failed RConClient task"
                 | None ->
@@ -361,15 +382,23 @@ type RConGameServerControl(settings : Settings, ?logger) =
                     match s with
                     | Ok() ->
                         logger.Debug("Connected to RCon")
-                        return! attempt attemptsLeft
+                        // try the task immediately now that we have a client
+                        return! attempt attemptsLeft 200
                     | Error msg ->
-                        logger.Debug("Connection failed: " + msg)
-                        if attemptsLeft > 0 then
-                            return! attempt (attemptsLeft - 1)
-                        else
-                            return Error "No connection to DServer"
+                        match checkIfRunning() with
+                        | None ->
+                            logger.Debug("tryOnClient:  after connect retry, DServer not running")
+                            return Error "DServer not running"
+                        | Some _ ->
+                            logger.Debug("Connection failed: " + msg)
+                            if attemptsLeft > 0 then
+                                // wait a bit before trying to connect again
+                                do! Async.Sleep(1000)
+                                return! attempt (attemptsLeft - 1) (min 5000 (backoffMs * 2))
+                            else
+                                return Error "No connection to DServer"
             }
-        attempt 3
+        attempt 6 200
 
     let rotateMission() =
         tryOnClient <| fun client -> async {
@@ -405,28 +434,28 @@ type RConGameServerControl(settings : Settings, ?logger) =
                         logger.Warn(exc)
                         failwith "Failed to copy mission to game's dir"
 
-                let resaverDir = IO.Path.Combine(settings.GameDir, "bin", "resaver")
-                let path = IO.Path.Combine(settings.GameMissionPath, filename) + ".Mission"
-                let p = ProcessStartInfo("MissionResaver.exe", sprintf "-d \"%s\" -f \"%s\"" settings.GameDataPath path)
+                let resaverDir = IO.Path.GetFullPath(IO.Path.Combine(settings.GameDir, "bin", "resaver"))
+                let path = IO.Path.GetFullPath(IO.Path.Combine(settings.GameMissionPath, filename) + ".Mission")
+                let exePath = IO.Path.Combine(resaverDir, "MissionResaver.exe")
+                let p = ProcessStartInfo(exePath, sprintf "-d \"%s\" -f \"%s\"" settings.GameDataPath path)
                 p.WorkingDirectory <- resaverDir
                 p.UseShellExecute <- false
                 p.RedirectStandardError <- true
                 p.RedirectStandardOutput <- true
-                let oldCwd = Environment.CurrentDirectory
-                let proc =
-                    try
-                        Environment.CurrentDirectory <- resaverDir
-                        Process.Start(p)
-                    finally
-                        Environment.CurrentDirectory <- oldCwd
+
+                let proc = Process.Start(p)
                 logger.Debug proc.StartInfo.Arguments
-                let rec awaitExited() =
+
+                let awaitExited (timeoutMs : int) (pollMs : int) =
                     async {
+                        let sw = Stopwatch.StartNew()
+                        while not proc.HasExited && sw.ElapsedMilliseconds < int64 timeoutMs do
+                            do! Async.Sleep(pollMs)
                         if not proc.HasExited then
-                            do! Async.Sleep(5000)
-                            return! awaitExited()
+                            logger.Warn(sprintf "Process did not exit within %d ms" timeoutMs)
                     }
-                do! awaitExited()
+                do! awaitExited 5000 100
+
                 logger.Info(proc.StandardOutput.ReadToEnd())
                 logger.Warn(proc.StandardError.ReadToEnd())
                 if proc.ExitCode <> 0 then
