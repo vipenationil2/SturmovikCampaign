@@ -11,6 +11,7 @@ Options
   MultiplayerPlaneConfig = "LuaScripts\WorldObjects\Planes\bf109g4.txt";
   MultiplayerPlaneConfig = "LuaScripts\WorldObjects\Planes\bf109g6.txt";
   MultiplayerPlaneConfig = "LuaScripts\WorldObjects\Planes\bf110g2.txt";
+  MultiplayerPlaneConfig = "LuaScripts\WorldObjects\Planes\c47a.txt";
   MultiplayerPlaneConfig = "LuaScripts\WorldObjects\Planes\fw190a5.txt";
   MultiplayerPlaneConfig = "LuaScripts\WorldObjects\Planes\fw190a6.txt";
   MultiplayerPlaneConfig = "LuaScripts\WorldObjects\Planes\he111h16.txt";
@@ -21,8 +22,9 @@ Options
   MultiplayerPlaneConfig = "LuaScripts\WorldObjects\Planes\ju87d3.txt";
   MultiplayerPlaneConfig = "LuaScripts\WorldObjects\Planes\ju88a4.txt";
   MultiplayerPlaneConfig = "LuaScripts\WorldObjects\Planes\la5fns2.txt";
-  MultiplayerPlaneConfig = "LuaScripts\WorldObjects\Planes\p39l1.txt";
-  MultiplayerPlaneConfig = "LuaScripts\WorldObjects\Planes\p40e1.txt";
+  MultiplayerPlaneConfig = "LuaScripts\WorldObjects\Planes\li2.txt";
+  MultiplayerPlaneConfig = "LuaScripts\WorldObjects\Planes\p38j25.txt";
+  MultiplayerPlaneConfig = "LuaScripts\WorldObjects\Planes\p51b5.txt";
   MultiplayerPlaneConfig = "LuaScripts\WorldObjects\Planes\pe2s87.txt";
   MultiplayerPlaneConfig = "LuaScripts\WorldObjects\Planes\spitfiremkvb.txt";
   MultiplayerPlaneConfig = "LuaScripts\WorldObjects\Planes\u2vs.txt";
@@ -206,7 +208,7 @@ Group
       224745, 95436;
       227092, 63064;
       251820, 71070;
-      252522, 96458.8;
+      252522, 96458;
       230193, 130692;
     }
   }
@@ -3463,10 +3465,10 @@ Group
     Country = 0;
     Boundary
     {
-      272236, 84132.8;
-      273815, 84434.4;
-      273330, 85776.7;
-      271904, 85698.6;
+      272236, 84132;
+      273815, 84434;
+      273330, 85776;
+      271904, 85698;
     }
   }
   
@@ -3488,10 +3490,10 @@ Group
     Country = 0;
     Boundary
     {
-      259410, 53907.7;
-      261033, 53547.7;
-      261417, 54822.4;
-      259765, 55580.5;
+      259410, 53907;
+      261033, 53547;
+      261417, 54822;
+      259765, 55580;
     }
   }
   
@@ -3513,9 +3515,9 @@ Group
     Country = 0;
     Boundary
     {
-      257170, 47995.3;
-      259046, 47612.9;
-      259797, 49148.9;
+      257170, 47995;
+      259046, 47612;
+      259797, 49148;
       257497, 50392;
     }
   }
@@ -162477,10 +162479,10 @@ Group
     Country = 0;
     Boundary
     {
-      264932, 62160.9;
-      266965, 62204.9;
-      266846, 64202.9;
-      264965, 64082.9;
+      264932, 62160;
+      266965, 62204;
+      266846, 64202;
+      264965, 64082;
     }
   }
   
@@ -162502,10 +162504,10 @@ Group
     Country = 0;
     Boundary
     {
-      257925, 57754.5;
+      257925, 57754;
       259958, 57798;
       259839, 59796;
-      257958, 59676.2;
+      257958, 59676;
     }
   }
   
@@ -162527,10 +162529,10 @@ Group
     Country = 0;
     Boundary
     {
-      269895, 82958.2;
-      271928, 83002.2;
-      271809, 85000.2;
-      269928, 84880.2;
+      269895, 82958;
+      271928, 83002;
+      271809, 85000;
+      269928, 84880;
     }
   }
   
@@ -162552,10 +162554,10 @@ Group
     Country = 0;
     Boundary
     {
-      261447, 94641.3;
-      263480, 94685.3;
-      263361, 96683.3;
-      261480, 96563.3;
+      261447, 94641;
+      263480, 94685;
+      263361, 96683;
+      261480, 96563;
     }
   }
   
@@ -162577,8 +162579,8 @@ Group
     Country = 0;
     Boundary
     {
-      236803, 98394.2;
-      238836, 98438.2;
+      236803, 98394;
+      238836, 98438;
       238717, 100436;
       236836, 100316;
     }
@@ -163055,66 +163057,6 @@ Airfield
       RenewTime = 1800;
       Altitude = 500;
       Spotter = -1;
-      Model = "graphics\planes\p39l1\p39l1.mgm";
-      Script = "LuaScripts\WorldObjects\Planes\p39l1.txt";
-      Name = "";
-      Skin = "";
-      AvMods = "";
-      AvSkins = "";
-      AvPayloads = "";
-      Callsign = 0;
-      Callnum = 0;
-      TCode = "%20%20%20%20";
-      TCodeColors = "0000";
-    }
-    Plane
-    {
-      SetIndex = 0;
-      Number = 10;
-      AILevel = 2;
-      StartInAir = 2;
-      Engageable = 1;
-      Vulnerable = 1;
-      LimitAmmo = 1;
-      AIRTBDecision = 1;
-      Renewable = 1;
-      PayloadId = 0;
-      WMMask = 1;
-      Fuel = 1;
-      RouteTime = 0;
-      RenewTime = 1800;
-      Altitude = 500;
-      Spotter = -1;
-      Model = "graphics\planes\p40e1\p40e1.mgm";
-      Script = "LuaScripts\WorldObjects\Planes\p40e1.txt";
-      Name = "";
-      Skin = "";
-      AvMods = "";
-      AvSkins = "";
-      AvPayloads = "";
-      Callsign = 0;
-      Callnum = 0;
-      TCode = "%20%20%20%20";
-      TCodeColors = "0000";
-    }
-    Plane
-    {
-      SetIndex = 0;
-      Number = 10;
-      AILevel = 2;
-      StartInAir = 2;
-      Engageable = 1;
-      Vulnerable = 1;
-      LimitAmmo = 1;
-      AIRTBDecision = 1;
-      Renewable = 1;
-      PayloadId = 0;
-      WMMask = 1;
-      Fuel = 1;
-      RouteTime = 0;
-      RenewTime = 1800;
-      Altitude = 500;
-      Spotter = -1;
       Model = "graphics\planes\pe2s87\pe2s87.mgm";
       Script = "LuaScripts\WorldObjects\Planes\pe2s87.txt";
       Name = "";
@@ -163267,6 +163209,126 @@ Airfield
       Spotter = -1;
       Model = "graphics\planes\yak9ts1\yak9ts1.mgm";
       Script = "LuaScripts\WorldObjects\Planes\yak9ts1.txt";
+      Name = "";
+      Skin = "";
+      AvMods = "";
+      AvSkins = "";
+      AvPayloads = "";
+      Callsign = 0;
+      Callnum = 0;
+      TCode = "%20%20%20%20";
+      TCodeColors = "0000";
+    }
+    Plane
+    {
+      SetIndex = 0;
+      Number = 10;
+      AILevel = 2;
+      StartInAir = 2;
+      Engageable = 1;
+      Vulnerable = 1;
+      LimitAmmo = 1;
+      AIRTBDecision = 1;
+      Renewable = 1;
+      PayloadId = 0;
+      WMMask = 1;
+      Fuel = 1;
+      RouteTime = 0;
+      RenewTime = 1800;
+      Altitude = 500;
+      Spotter = -1;
+      Model = "graphics\planes\p38j25\p38j25.mgm";
+      Script = "LuaScripts\WorldObjects\Planes\p38j25.txt";
+      Name = "";
+      Skin = "";
+      AvMods = "";
+      AvSkins = "";
+      AvPayloads = "";
+      Callsign = 0;
+      Callnum = 0;
+      TCode = "%20%20%20%20";
+      TCodeColors = "0000";
+    }
+    Plane
+    {
+      SetIndex = 0;
+      Number = 10;
+      AILevel = 2;
+      StartInAir = 2;
+      Engageable = 1;
+      Vulnerable = 1;
+      LimitAmmo = 1;
+      AIRTBDecision = 1;
+      Renewable = 1;
+      PayloadId = 0;
+      WMMask = 1;
+      Fuel = 1;
+      RouteTime = 0;
+      RenewTime = 1800;
+      Altitude = 500;
+      Spotter = -1;
+      Model = "graphics\planes\p51b5\p51b5.mgm";
+      Script = "LuaScripts\WorldObjects\Planes\p51b5.txt";
+      Name = "";
+      Skin = "";
+      AvMods = "";
+      AvSkins = "";
+      AvPayloads = "";
+      Callsign = 0;
+      Callnum = 0;
+      TCode = "%20%20%20";
+      TCodeColors = "000";
+    }
+    Plane
+    {
+      SetIndex = 0;
+      Number = 10;
+      AILevel = 2;
+      StartInAir = 2;
+      Engageable = 1;
+      Vulnerable = 1;
+      LimitAmmo = 1;
+      AIRTBDecision = 1;
+      Renewable = 1;
+      PayloadId = 0;
+      WMMask = 1;
+      Fuel = 1;
+      RouteTime = 0;
+      RenewTime = 1800;
+      Altitude = 500;
+      Spotter = -1;
+      Model = "graphics\planes\c47a\c47a.mgm";
+      Script = "LuaScripts\WorldObjects\Planes\c47a.txt";
+      Name = "";
+      Skin = "";
+      AvMods = "";
+      AvSkins = "";
+      AvPayloads = "";
+      Callsign = 0;
+      Callnum = 0;
+      TCode = "%20%20%20%20";
+      TCodeColors = "0000";
+    }
+    Plane
+    {
+      SetIndex = 0;
+      Number = 10;
+      AILevel = 2;
+      StartInAir = 2;
+      Engageable = 1;
+      Vulnerable = 1;
+      LimitAmmo = 1;
+      AIRTBDecision = 1;
+      Renewable = 1;
+      PayloadId = 0;
+      WMMask = 1;
+      Fuel = 1;
+      RouteTime = 0;
+      RenewTime = 1800;
+      Altitude = 500;
+      Spotter = -1;
+      Model = "graphics\planes\li2\li2.mgm";
+      Script = "LuaScripts\WorldObjects\Planes\li2.txt";
       Name = "";
       Skin = "";
       AvMods = "";
@@ -163730,7 +163792,7 @@ Group
     Spotter = -1;
     BeaconChannel = 0;
     Callsign = 0;
-    TCode = "%20%20%20%20";
+    TCode = "%2520%2520%2520%2520";
     TCodeColor = "0000";
   }
   
@@ -163778,7 +163840,7 @@ Group
     Spotter = -1;
     BeaconChannel = 0;
     Callsign = 0;
-    TCode = "%20%20%20%20";
+    TCode = "%2520%2520%2520%2520";
     TCodeColor = "0000";
   }
   
@@ -163826,7 +163888,7 @@ Group
     Spotter = -1;
     BeaconChannel = 0;
     Callsign = 0;
-    TCode = "%20%20%20%20";
+    TCode = "%2520%2520%2520%2520";
     TCodeColor = "0000";
   }
   
@@ -163874,7 +163936,7 @@ Group
     Spotter = -1;
     BeaconChannel = 0;
     Callsign = 0;
-    TCode = "%20%20%20%20";
+    TCode = "%2520%2520%2520%2520";
     TCodeColor = "0000";
   }
   
@@ -163922,7 +163984,7 @@ Group
     Spotter = -1;
     BeaconChannel = 0;
     Callsign = 0;
-    TCode = "%20%20%20%20";
+    TCode = "%2520%2520%2520%2520";
     TCodeColor = "0000";
   }
   
@@ -163970,7 +164032,7 @@ Group
     Spotter = -1;
     BeaconChannel = 0;
     Callsign = 0;
-    TCode = "%20%20%20%20";
+    TCode = "%2520%2520%2520%2520";
     TCodeColor = "0000";
   }
   
@@ -164018,7 +164080,7 @@ Group
     Spotter = -1;
     BeaconChannel = 0;
     Callsign = 0;
-    TCode = "%20%20%20%20";
+    TCode = "%2520%2520%2520%2520";
     TCodeColor = "0000";
   }
   
